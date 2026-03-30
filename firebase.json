@@ -1,0 +1,23 @@
+{
+  "firestore": [
+    {
+      "database": "promptmaster-spa-db-0",
+      "rules": "firestore.rules"
+    }
+  ],
+  "hosting": {
+    "site": "promptmaster-v0",
+    "public": "dist",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}
