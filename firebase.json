@@ -3,6 +3,14 @@
     {
       "database": "promptmaster-spa-db-0",
       "rules": "firestore.rules"
+    },
+    {
+      "database": "promptresources-db-0",
+      "rules": "firestore.rules"
+    },
+    {
+      "database": "prompttool-db-0",
+      "rules": "firestore.rules"
     }
   ],
   "hosting": {

@@ -1,7 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import { Send, RefreshCw, X, Sliders, CheckCircle2, Loader2, AlertCircle, Clock, Image, Zap } from 'lucide-react';
+import { collection, getDocs, addDoc, serverTimestamp, doc, setDoc, query, where, orderBy } from 'firebase/firestore';
+import { db, resourcesDb, toolDb } from '../lib/firebase';
+import { 
+  X, 
+  Send, 
+  Sparkles, 
+  RefreshCw, 
+  Zap,
+  Sliders,
+  Edit3,
+  Save,
+  Plus,
+  Database,
+  LayoutGrid,
+  History,
+  Search,
+  List,
+  Maximize2,
+  ZoomIn,
+  UploadCloud,
+  Layers,
+  GalleryVertical,
+  CheckCircle2,
+  AlertCircle,
+  Loader2
+} from 'lucide-react';
 import { triggerGeneration, type GenerationProgress } from '../lib/services/prompt-tool';
 import { useAuth } from '../contexts/AuthContext';
 import { useParams } from 'react-router-dom';
@@ -13,7 +36,22 @@ interface Prompt {
   prompts?: string[];
   thumbnailUrl?: string;
   description?: string;
+  isPersonal?: boolean;
+  isExemplar?: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+  promptSetID?: string;
 }
+
+const parseDate = (val: any): number => {
+    if (!val) return 0;
+    if (typeof val.toMillis === 'function') return val.toMillis();
+    if (typeof val.seconds === 'number') return val.seconds * 1000;
+    if (val instanceof Date) return val.getTime();
+    if (typeof val === 'number') return val;
+    return new Date(val).getTime() || 0;
+};
+
 
 interface StatusStep {
   id: string;
@@ -21,10 +59,19 @@ interface StatusStep {
   status: 'waiting' | 'active' | 'done' | 'error';
 }
 
+const INITIAL_STEPS: StatusStep[] = [
+    { id: 'auth', label: 'Auth', status: 'waiting' },
+    { id: 'queue', label: 'Queue', status: 'waiting' },
+    { id: 'generate', label: 'Generate', status: 'waiting' },
+    { id: 'upload', label: 'Upload', status: 'waiting' },
+    { id: 'complete', label: 'Complete', status: 'waiting' }
+];
+
 interface CompletionSummary {
   creditsUsed?: number;
   remainingBalance?: number;
   imageUrl?: string;
+  title?: string;
   quality?: string;
   elapsed?: number;
 }
@@ -41,67 +88,161 @@ const FALLBACK_PROMPTS: Prompt[] = [
     id: 'sample-2',
     title: 'Architectural Visualization',
     description: 'Photorealistic interior design and materials.',
-    prompts: ['Modern {{room}} with {{material}} accents, natural sunlight streaming through windows, architectural photography'],
+    prompts: ['Modern {{room:living room}} with {{material:concrete}} accents, natural sunlight streaming through windows, architectural photography'],
     thumbnailUrl: 'https://api.dicebear.com/7.x/shapes/svg?seed=arch1'
   }
 ];
 
-const INITIAL_STEPS: StatusStep[] = [
-  { id: 'auth',     label: 'Verifying credentials',     status: 'waiting' },
-  { id: 'queue',    label: 'Queuing generation request', status: 'waiting' },
-  { id: 'generate', label: 'Running AI generation',      status: 'waiting' },
-  { id: 'upload',   label: 'Uploading to storage',       status: 'waiting' },
-  { id: 'complete', label: 'Finalising result',          status: 'waiting' },
+const FALLBACK_EXEMPLARS: Prompt[] = [
+  {
+    id: 'exemplar-1',
+    title: 'Surrealist Void Architecture',
+    template: 'A floating {{structure}} in an endless {{void}}, surrealist style, hyper-detailed, 8k',
+    thumbnailUrl: 'https://api.dicebear.com/7.x/shapes/svg?seed=sur1',
+    description: 'System Exemplar',
+    isExemplar: true
+  },
+  {
+    id: 'exemplar-2',
+    title: 'Hyper-Realistic Foliage',
+    template: 'Macro shot of {{plant}} with {{weather}} droplets, hyper-realistic, studio lighting',
+    thumbnailUrl: 'https://api.dicebear.com/7.x/shapes/svg?seed=fol1',
+    description: 'System Exemplar',
+    isExemplar: true
+  }
 ];
 
+const formatElapsed = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
+const StepIcon = ({ stepStatus }: { stepStatus: StatusStep['status'] }) => {
+  if (stepStatus === 'done')    return <CheckCircle2 className="w-4 h-4 text-green-400" />;
+  if (stepStatus === 'active')  return <Loader2 className="w-4 h-4 text-primary animate-spin" />;
+  if (stepStatus === 'error')   return <AlertCircle className="w-4 h-4 text-red-400" />;
+  return <div className="w-4 h-4 rounded-full border border-white/20" />;
+};
+
 const PromptMaster: React.FC = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { promptId } = useParams();
-  const [prompts, setPrompts] = useState<Prompt[]>(FALLBACK_PROMPTS);
+  
+  const [confirmModal, setConfirmModal] = useState<{ 
+    isOpen: boolean; 
+    title: string; 
+    message: string; 
+    onConfirm: () => void; 
+    isDanger?: boolean;
+    customButtons?: Array<{
+        label: string;
+        onClick: () => void;
+        className?: string; // Tailwind class
+    }>;
+  } | null>(null);
+  
+  // Library State
+  const [prompts, setPrompts] = useState<Prompt[]>([]);
+  const [exemplars, setExemplars] = useState<Prompt[]>([]);
+  const [loadingLibrary, setLoadingLibrary] = useState(true);
+  const [activeTab, setActiveTab] = useState<'blueprints' | 'exemplars'>('blueprints');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortMode, setSortMode] = useState<'az' | 'za' | 'newest' | 'oldest' | 'updated'>('updated');
+  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'extended'>('grid');
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
-  const [variables, setVariables] = useState<Record<string, string>>({});
+  const [rawTemplate, setRawTemplate] = useState('');
+  const [variables, setVariables] = useState<Record<string, { value: string, default: string }>>({});
   const [resultantPrompt, setResultantPrompt] = useState('');
+  const [isEditingBlueprint, setIsEditingBlueprint] = useState(false);
+  
+  // Engine State
   const [generating, setGenerating] = useState(false);
-  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [generatedImages, setGeneratedImages] = useState<Array<{ url: string, title?: string, prompt?: string }>>([]);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<StatusStep[]>(INITIAL_STEPS);
+  const [progressMsg, setProgressMsg] = useState('');
   const [engine, setEngine] = useState('nanobanana-2.0');
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [previewTitle, setPreviewTitle] = useState<string | null>(null);
+  const [previewPrompt, setPreviewPrompt] = useState<string | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<'architect' | 'media'>('architect');
+  const [isNewImageSet, setIsNewImageSet] = useState<boolean>(false);
 
   // Progress tracking
-  const [steps, setSteps] = useState<StatusStep[]>(INITIAL_STEPS);
-  const [progressMsg, setProgressMsg] = useState<string>('');
+  const [elapsed, setElapsed] = useState(0);
   const [progressCurrent, setProgressCurrent] = useState(0);
   const [progressTotal, setProgressTotal] = useState(1);
-  const [elapsed, setElapsed] = useState(0);
   const [completion, setCompletion] = useState<CompletionSummary | null>(null);
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const setStep = (id: string, status: StatusStep['status']) => {
-    setSteps(prev => prev.map(s => s.id === id ? { ...s, status } : s));
-  };
+  const fetchPrompts = async () => {
+    setLoadingLibrary(true);
+    try {
+      // 1. Fetch Blueprints
+      const masterSnap = await getDocs(collection(resourcesDb, 'resources'));
+      const masterRes = masterSnap.docs.map(doc => {
+          const d = doc.data();
+          return { 
+              id: doc.id, 
+              ...d,
+              createdAt: parseDate(d.createdAt),
+              updatedAt: parseDate(d.updatedAt || d.createdAt)
+          } as Prompt;
+      });
+      
+      let personal: Prompt[] = [];
+      if (user) {
+          const personalSnap = await getDocs(collection(db, 'blueprints'));
+          personal = personalSnap.docs
+              .filter(d => d.data().uid === user.uid)
+              .map(d => {
+                  const data = d.data();
+                  return { 
+                      id: d.id, 
+                      ...data, 
+                      isPersonal: true,
+                      createdAt: parseDate(data.createdAt),
+                      updatedAt: parseDate(data.updatedAt || data.createdAt)
+                  } as Prompt;
+              });
+      }
+      setPrompts(masterRes.length > 0 ? [...personal, ...masterRes] : [...personal, ...FALLBACK_PROMPTS]);
 
-  const resetProgress = () => {
-    setSteps(INITIAL_STEPS.map(s => ({ ...s, status: 'waiting' })));
-    setProgressMsg('');
-    setProgressCurrent(0);
-    setProgressTotal(1);
-    setElapsed(0);
-    setCompletion(null);
-    if (timerRef.current) clearInterval(timerRef.current);
+      // 2. Fetch Exemplars (PromptTool leagueEntries)
+      try {
+        const toolSnap = await getDocs(collection(toolDb, 'leagueEntries'));
+        const toolRes = toolSnap.docs.map(doc => {
+            const data = doc.data();
+            const legacyTitle = data.prompt?.slice(0, 50).trim() + (data.prompt?.length > 50 ? '...' : '');
+            return {
+                id: doc.id,
+                title: data.title || legacyTitle || 'Untitled Exemplar',
+                template: data.prompt,
+                prompts: [data.prompt],
+                thumbnailUrl: data.imageUrl,
+                description: `By ${data.authorName || 'Ecosystem Architect'}`,
+                isExemplar: true,
+                promptSetID: data.promptSetID || data.entryId || doc.id,
+                createdAt: parseDate(data.createdAt || data.timestamp),
+                updatedAt: parseDate(data.updatedAt || data.createdAt || data.timestamp)
+            } as Prompt;
+        });
+        setExemplars(toolRes.length > 0 ? toolRes : FALLBACK_EXEMPLARS);
+      } catch (toolErr) {
+        console.error("Exemplar Node Hydration Failed:", toolErr);
+        setExemplars(FALLBACK_EXEMPLARS);
+      }
+
+    } catch (err) {
+      setPrompts(FALLBACK_PROMPTS);
+    } finally {
+      setLoadingLibrary(false);
+    }
   };
 
   useEffect(() => {
-    const fetchPrompts = async () => {
-      try {
-        const snap = await getDocs(collection(db, 'resources'));
-        const fetched = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Prompt));
-        setPrompts(fetched.length > 0 ? fetched : FALLBACK_PROMPTS);
-      } catch (err) {
-        setPrompts(FALLBACK_PROMPTS);
-      }
-    };
     fetchPrompts();
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (promptId && prompts.length > 0) {
@@ -113,33 +254,344 @@ const PromptMaster: React.FC = () => {
   const extractVariables = (template: string) => {
     const regex = /{{(.*?)}}/g;
     const matches = [...template.matchAll(regex)];
-    const vars: Record<string, string> = {};
-    matches.forEach(match => { vars[match[1]] = ''; });
-    setVariables(vars);
-  };
+    const newVars: Record<string, { value: string, default: string }> = { ...variables };
+    
+    const foundTags = matches.map(m => {
+        const parts = m[1].split(':');
+        const key = parts[0];
+        const def = parts.length > 1 ? parts[1] : '<undefined>';
+        return { key, default: def };
+    });
 
-  const handleSelect = (prompt: Prompt) => {
-    setSelectedPrompt(prompt);
-    const template = prompt.prompts?.[0] || prompt.template || '';
-    extractVariables(template);
+    const foundKeys = foundTags.map(t => t.key);
+    Object.keys(newVars).forEach(v => {
+      if (!foundKeys.includes(v)) delete newVars[v];
+    });
+
+    foundTags.forEach(tag => {
+      if (!(tag.key in newVars)) {
+          newVars[tag.key] = { value: tag.default, default: tag.default };
+      } else {
+          newVars[tag.key].default = tag.default;
+          if (tag.default === '<undefined>' && (!newVars[tag.key].value || newVars[tag.key].value === '')) {
+              newVars[tag.key].value = '<undefined>';
+          }
+      }
+    });
+
+    setVariables(newVars);
   };
 
   useEffect(() => {
+    if (!rawTemplate) return;
+    extractVariables(rawTemplate);
+  }, [rawTemplate]);
+
+  useEffect(() => {
     if (!selectedPrompt) return;
-    let result = selectedPrompt.prompts?.[0] || selectedPrompt.template || '';
-    Object.entries(variables).forEach(([key, value]) => {
-      const displayValue = value || `[${key}]`;
-      result = result.replace(new RegExp(`{{${key}}}`, 'g'), displayValue);
+    let result = rawTemplate || '';
+    Object.entries(variables).forEach(([key, data]) => {
+      const isActuallyDefault = !data.value || data.value === data.default || data.default === '<undefined>';
+      const displayValue = data.value || data.default || `[${key}]`;
+      
+      const wrapped = isActuallyDefault ? `__DEF__${displayValue}__DEF__` : `__VAL__${displayValue}__VAL__`;
+      result = result.replace(new RegExp(`{{${key}(?::.*?)?}}`, 'g'), wrapped);
     });
     setResultantPrompt(result);
-  }, [variables, selectedPrompt]);
+  }, [variables, selectedPrompt, rawTemplate]);
+
+  const getCleanPrompt = () => {
+    let result = rawTemplate || '';
+    Object.entries(variables).forEach(([key, data]) => {
+      const currentValue = data.value || data.default || '';
+      if (currentValue && currentValue !== '<undefined>') {
+          result = result.replace(new RegExp(`{{${key}(?::.*?)?}}`, 'g'), `{{${key}:${currentValue}}}`);
+      } else {
+          result = result.replace(new RegExp(`{{${key}(?::.*?)?}}`, 'g'), `{{${key}}}`);
+      }
+    });
+    return result;
+  };
+
+  const handleSelect = async (prompt: Prompt) => {
+    setSelectedPrompt(prompt);
+    setGeneratedImages([]); // Clear variations on new blueprint selection
+    setVariables({}); // Purge old variable inputs to hydrate from new blueprint
+    const template = prompt.prompts?.[0] || prompt.template || '';
+    setRawTemplate(template);
+    setIsEditingBlueprint(false);
+    setActiveDetailTab('architect');
+
+    // Cross-Ecosystem Variation Hydration
+    const lineageID = prompt.promptSetID || prompt.id;
+    if (lineageID) {
+        try {
+            const q = query(
+                collection(toolDb, 'generations'),
+                where('promptSetID', '==', lineageID),
+                orderBy('createdAt', 'desc')
+            );
+            const snaps = await getDocs(q);
+            if (!snaps.empty) {
+                const fetchedVariations = snaps.docs.map(doc => {
+                    const data = doc.data();
+                    return {
+                        url: data.imageUrl,
+                        title: data.title || prompt.title, // fallback to blueprint title
+                        prompt: data.prompt
+                    };
+                }).filter(v => v.url); // filter out failures securely
+
+                // Set hydration array
+                setGeneratedImages(fetchedVariations);
+            }
+        } catch (err) {
+            console.error("Hydrating PromptTool variations failed:", err);
+        }
+    }
+  };
+
+  const commitSelection = (url: string | null, title: string | undefined, newPrompt: string) => {
+      setVariables({}); // Force inputs to reflect loaded defaults
+      setRawTemplate(newPrompt);
+      if (url && selectedPrompt) {
+          setSelectedPrompt(prev => prev ? { ...prev, thumbnailUrl: url, title: title || prev.title } : null);
+      }
+      setActiveDetailTab('architect');
+  };
+
+  const handleAssetSelection = (url: string | null, title: string | undefined, newPrompt: string | undefined) => {
+    if (!newPrompt) {
+        setPreviewImageUrl(url);
+        setPreviewTitle(title || '<no title>');
+        return;
+    }
+
+    const currentBlueprintOriginal = selectedPrompt?.prompts?.[0] || selectedPrompt?.template || '';
+    const updatedRaw = getCleanPrompt();
+    const hasChanges = updatedRaw !== currentBlueprintOriginal && rawTemplate !== currentBlueprintOriginal;
+
+    if (hasChanges) {
+        setConfirmModal({
+            isOpen: true,
+            title: 'Unsaved Architecture Changes',
+            message: 'Your current prompt overrides have not been registered to the ecosystem. Resolving conflict...',
+            isDanger: true,
+            onConfirm: () => {}, // unused due to custom buttons
+            customButtons: [
+                {
+                    label: 'Save & Continue',
+                    onClick: () => {
+                        saveBlueprint(false);
+                        commitSelection(url, title, newPrompt);
+                        setConfirmModal(null);
+                    },
+                    className: "col-span-1 py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all shadow-lg bg-primary/80 hover:bg-primary shadow-primary/20"
+                },
+                {
+                    label: 'Save & Exit',
+                    onClick: () => {
+                        saveBlueprint(false);
+                        setSelectedPrompt(null);
+                        setConfirmModal(null);
+                    },
+                    className: "col-span-1 py-3 px-6 rounded-xl border border-white/10 text-xs font-black uppercase tracking-widest text-gray-400 hover:bg-white/5 transition-all"
+                },
+                {
+                    label: 'Discard & Load Variation',
+                    onClick: () => {
+                        commitSelection(url, title, newPrompt);
+                        setConfirmModal(null);
+                    },
+                    className: "col-span-2 mt-2 py-3 px-6 rounded-xl border border-red-500/20 text-[10px] font-black uppercase tracking-[0.2em] text-red-500 hover:bg-red-500/10 transition-all"
+                }
+            ]
+        });
+    } else {
+        commitSelection(url, title, newPrompt);
+    }
+  };
+
+  const clearInput = (key: string) => {
+    setVariables(prev => ({ ...prev, [key]: { ...prev[key], value: '' } }));
+  };
+
+  const useDefault = (key: string) => {
+    setVariables(prev => ({ ...prev, [key]: { ...prev[key], value: prev[key].default } }));
+  };
+
+  const revertBlueprint = () => {
+    if (!selectedPrompt) return;
+    const originalTemplate = selectedPrompt.prompts?.[0] || selectedPrompt.template || '';
+    
+    setConfirmModal({
+        isOpen: true,
+        title: 'Revert Architecture',
+        message: 'Discard all unsaved structural changes and snap back to the last saved blueprint?',
+        isDanger: true,
+        onConfirm: () => {
+            setRawTemplate(originalTemplate);
+            setConfirmModal(null);
+        }
+    });
+  };
+
+  const confirmRevert = () => revertBlueprint();
+
+  const setAsDefault = (key: string) => {
+    const val = variables[key].value;
+    if (!val) return;
+    
+    setConfirmModal({
+        isOpen: true,
+        title: 'Set Architectural Default',
+        message: `Configure "{{${key}:${val}}}" as the permanent default for this blueprint?`,
+        onConfirm: () => {
+            const newTemplate = rawTemplate.replace(
+                new RegExp(`{{${key}(?::.*?)?}}`, 'g'), 
+                `{{${key}:${val}}}`
+            );
+            setRawTemplate(newTemplate);
+            setConfirmModal(null);
+        }
+    });
+  };
+
+  const resetProgress = () => {
+    setStatus(INITIAL_STEPS.map(s => ({ ...s, status: 'waiting' })));
+    setProgressMsg('');
+    setProgressCurrent(0);
+    setProgressTotal(1);
+    setElapsed(0);
+    setCompletion(null);
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const setStep = (id: string, status: StatusStep['status']) => {
+    setStatus(prev => prev.map(s => s.id === id ? { ...s, status } : s));
+  };
+
+  const suggestTitle = (text: string) => {
+    const regex = /(__DEF__.*?__DEF__|__VAL__.*?__VAL__)/g;
+    const parts = text.split(regex);
+    let fragments: string[] = [];
+    parts.forEach(part => {
+        if (part.startsWith('__DEF__') || part.startsWith('__VAL__')) {
+            const content = part.replace(/__DEF__|__VAL__/g, '');
+            const key = Object.keys(variables).find(k => 
+                variables[k].default === content || variables[k].value === content
+            ) || '';
+            fragments.push(key.replace(/[\[\]]/g, ''));
+        } else {
+            fragments.push(part);
+        }
+    });
+    let clean = fragments.join(' ').toLowerCase();
+    const noise = ['8k', 'cinematic', 'lighting', 'masterpiece', 'atmospheric', 'photorealistic', 'realistic', 'hi-res', 'high resolution', 'hyper-detailed', 'intricate', 'studio', 'render', 'unreal engine', 'trending', 'artstation', 'vibrant', 'aesthetic', 'gritty'];
+    noise.forEach(n => {
+        const regex = new RegExp(`[,\\s]*${n}[,\\s]*`, 'gi');
+        clean = clean.replace(regex, ' ');
+    });
+    clean = clean.replace(/[\[\]]/g, '').replace(/\s+/g, ' ').trim();
+    const words = clean.split(/\s+/).filter(w => w.length > 2 && !w.includes('{'));
+    const title = words.slice(0, 6).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    return title || (selectedPrompt?.title ? `${selectedPrompt.title} (Custom)` : 'New Architecture');
+  };
+
+  const saveBlueprint = async (asNew: boolean = true) => {
+    if (!user || !selectedPrompt) return;
+    if (!selectedPrompt.title?.trim()) {
+        const suggestion = suggestTitle(resultantPrompt);
+        setConfirmModal({
+            isOpen: true,
+            title: 'Title Recommendation',
+            message: `Your blueprint needs a name. Recommended: "${suggestion}". Would you like to use this?`,
+            onConfirm: () => {
+                const updated = { ...selectedPrompt, title: suggestion };
+                setSelectedPrompt(updated);
+                setConfirmModal(null);
+                setTimeout(() => doSave(asNew, updated), 10);
+            }
+        });
+        return;
+    }
+    doSave(asNew, selectedPrompt);
+  };
+
+  const doSave = async (asNew: boolean, promptToSave: Prompt) => {
+    if (!user || !promptToSave) return;
+    
+    // Explicitly commit current variable values as new defaults in the raw template UI
+    const updatedRawTemplate = getCleanPrompt();
+    setRawTemplate(updatedRawTemplate);
+    
+    setSaving(true);
+    setSaveStatus('saving');
+    try {
+        const blueprintData = {
+            title: asNew && !promptToSave.title.includes('(Custom)') 
+                ? `${promptToSave.title} (Custom)` 
+                : promptToSave.title,
+            description: promptToSave.description || '',
+            prompts: [updatedRawTemplate],
+            thumbnailUrl: promptToSave.thumbnailUrl || '',
+            uid: user.uid,
+            updatedAt: serverTimestamp(),
+        };
+
+        if (asNew || !selectedPrompt?.id) {
+            const docRef = await addDoc(collection(db, 'blueprints'), {
+                ...blueprintData,
+                createdAt: serverTimestamp(),
+            });
+            setSelectedPrompt({ 
+                id: docRef.id, 
+                ...blueprintData, 
+                isPersonal: true,
+                createdAt: Date.now(),
+                updatedAt: Date.now()
+            });
+        } else if (selectedPrompt?.isPersonal) {
+            await setDoc(doc(db, 'blueprints', selectedPrompt.id), blueprintData, { merge: true });
+            setSelectedPrompt(prev => prev ? { ...prev, ...blueprintData, updatedAt: Date.now() } : null);
+        } else if (profile?.role === 'admin' || profile?.role === 'su') {
+            await setDoc(doc(resourcesDb, 'resources', selectedPrompt.id), {
+                ...blueprintData,
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+            setSelectedPrompt(prev => prev ? { ...prev, ...blueprintData, updatedAt: Date.now() } : null);
+        }
+        await fetchPrompts();
+        setSaveStatus('success');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+    } catch (err: any) {
+        setError("Failed to persist blueprint: " + err.message);
+        setSaveStatus('error');
+    } finally {
+        setSaving(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!user || !resultantPrompt) return;
+    const finalPrompt = getCleanPrompt();
+    
+    // Explicitly commit current variable values as new defaults in the raw template UI
+    setRawTemplate(finalPrompt);
+
+    // Derive active lineage ID
+    let activePromptSetID = selectedPrompt?.promptSetID || selectedPrompt?.id;
+    if (isNewImageSet) {
+        activePromptSetID = crypto.randomUUID();
+        setIsNewImageSet(false); // consume intent
+        if (selectedPrompt) {
+            setSelectedPrompt({ ...selectedPrompt, promptSetID: activePromptSetID });
+        }
+    }
+    
     resetProgress();
     setGenerating(true);
     setError(null);
-    setGeneratedImage(null);
     startTimeRef.current = Date.now();
     timerRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
@@ -151,7 +603,7 @@ const PromptMaster: React.FC = () => {
       setStep('auth', 'done');
       setStep('queue', 'active');
 
-      await triggerGeneration(resultantPrompt, user.uid, idToken, (event: GenerationProgress) => {
+       await triggerGeneration(finalPrompt, user.uid, idToken, (event: GenerationProgress) => {
         if (event.type === 'progress') {
           setStep('queue', 'done');
           setStep('generate', 'active');
@@ -162,8 +614,12 @@ const PromptMaster: React.FC = () => {
         if (event.type === 'image_ready') {
           setStep('generate', 'done');
           setStep('upload', 'active');
-          const url = event.image?.imageUrl || null;
-          setGeneratedImage(url);
+          const imageUrl = event.image?.imageUrl || null;
+          const imageTitle = event.image?.title || '<no title>';
+          const promptUsed = event.image?.prompt || finalPrompt;
+          if (imageUrl) {
+               setGeneratedImages(prev => [{ url: imageUrl, title: imageTitle, prompt: promptUsed }, ...prev]);
+          }
           setTimeout(() => setStep('upload', 'done'), 600);
         }
         if (event.type === 'complete') {
@@ -173,27 +629,19 @@ const PromptMaster: React.FC = () => {
           setCompletion({
             creditsUsed: event.creditsUsed,
             remainingBalance: event.remainingBalance,
-            imageUrl: generatedImage || undefined,
+            imageUrl: event.image?.imageUrl || undefined,
+            title: event.image?.title || undefined,
             elapsed: finalElapsed,
           });
           if (timerRef.current) clearInterval(timerRef.current);
           setTimeout(() => { setStep('complete', 'done'); setGenerating(false); }, 500);
         }
         if (event.type === 'error') {
-          steps.forEach(s => { if (s.status === 'active') setStep(s.id, 'error'); });
           setError(event.error || 'Unknown error');
           if (timerRef.current) clearInterval(timerRef.current);
           setGenerating(false);
         }
-      });
-
-      await addDoc(collection(db, 'generations'), {
-        uid: user.uid,
-        prompt: resultantPrompt,
-        timestamp: serverTimestamp(),
-        imageUrl: generatedImage,
-        engine
-      });
+      }, selectedPrompt?.title, activePromptSetID);
     } catch (err: any) {
       setError(err.message);
       if (timerRef.current) clearInterval(timerRef.current);
@@ -201,194 +649,727 @@ const PromptMaster: React.FC = () => {
     }
   };
 
-  const formatElapsed = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-
-  const StepIcon = ({ status }: { status: StatusStep['status'] }) => {
-    if (status === 'done')    return <CheckCircle2 className="w-4 h-4 text-green-400" />;
-    if (status === 'active')  return <Loader2 className="w-4 h-4 text-primary animate-spin" />;
-    if (status === 'error')   return <AlertCircle className="w-4 h-4 text-red-400" />;
-    return <div className="w-4 h-4 rounded-full border border-white/20" />;
-  };
+  const filteredList = (activeTab === 'blueprints' ? prompts : exemplars)
+    .filter(p => {
+        if (!searchQuery) return true;
+        const sq = searchQuery.toLowerCase();
+        const t = p?.title?.toLowerCase() || '';
+        const d = p?.description?.toLowerCase() || '';
+        return t.includes(sq) || d.includes(sq);
+    })
+    .sort((a, b) => {
+        if (sortMode === 'az') return (a?.title || '').localeCompare(b?.title || '');
+        if (sortMode === 'za') return (b?.title || '').localeCompare(a?.title || '');
+        if (sortMode === 'newest') return (b?.createdAt || 0) - (a?.createdAt || 0);
+        if (sortMode === 'oldest') return (a?.createdAt || 0) - (b?.createdAt || 0);
+        if (sortMode === 'updated') return (b?.updatedAt || b?.createdAt || 0) - (a?.updatedAt || a?.createdAt || 0);
+        return 0;
+    });
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-8">
-      {!selectedPrompt ? (
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {prompts.map((p, i) => (
-            <div 
-              key={p.id} 
-              onClick={() => handleSelect(p)} 
-              className="relative group cursor-pointer flex flex-col h-full animate-fade-in-up opacity-0"
-              style={{ animationDelay: `${i * 150}ms` }}
-            >
-              <div className="absolute -inset-0.5 bg-gradient-to-r from-primary to-accent rounded-3xl blur opacity-0 group-hover:opacity-40 transition duration-700 group-hover:duration-300"></div>
-              <div className="relative glass-panel p-6 bg-white/5 hover:bg-white/10 transition-all duration-500 transform group-hover:scale-[1.02] border-white/5 group-hover:border-primary/30 flex-1 flex flex-col justify-between">
-                <div className="flex gap-6 items-start">
-                  <div className="relative shrink-0">
-                    <div className="absolute -inset-1 bg-white/20 blur opacity-0 group-hover:opacity-100 rounded-xl transition duration-500"></div>
-                    <img src={p.thumbnailUrl} className="relative w-24 h-24 rounded-xl bg-black/40 object-cover shadow-2xl ring-1 ring-white/10" alt="" />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">{p.title}</h3>
-                    <p className="text-sm text-gray-400 mt-2 leading-relaxed">{p.description}</p>
-                  </div>
+      {confirmModal?.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-xl bg-black/60 transition-all duration-300">
+           <div className="relative glass-panel p-8 w-full max-w-md bg-[#181825]/95 border-primary/20 shadow-[0_0_50px_rgba(99,102,241,0.2)]">
+             <div className="flex items-center gap-4 mb-6">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${confirmModal.isDanger ? 'bg-red-500/10 border border-red-500/30' : 'bg-primary/10 border border-primary/30'}`}>
+                   {confirmModal.isDanger ? <AlertCircle className="w-6 h-6 text-red-400"/> : <Sparkles className="w-6 h-6 text-primary"/>}
                 </div>
-                <div className="mt-6 flex items-center justify-end">
-                  <span className="text-[10px] uppercase font-black tracking-widest text-primary/0 group-hover:text-primary/100 transition-colors flex items-center gap-2">Customize <RefreshCw className="w-3 h-3 group-hover:animate-spin" /></span>
+                <div>
+                   <h3 className="text-xl font-black text-white">{confirmModal.title}</h3>
+                   <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">Architecture Safety Guard</p>
+                </div>
+             </div>
+             <p className="text-sm text-gray-400 leading-relaxed mb-8">{confirmModal.message}</p>
+             <div className="grid grid-cols-2 gap-4">
+                 {confirmModal.customButtons ? (
+                     confirmModal.customButtons.map((btn, idx) => (
+                         <button key={idx} onClick={btn.onClick} className={btn.className}>
+                             {btn.label}
+                         </button>
+                     ))
+                 ) : (
+                     <>
+                        <button onClick={() => setConfirmModal(null)} className="py-3 px-6 rounded-xl border border-white/10 text-xs font-black uppercase tracking-widest text-gray-400 hover:bg-white/5 transition-all">Cancel</button>
+                        <button onClick={confirmModal.onConfirm} className={`py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all shadow-lg ${confirmModal.isDanger ? 'bg-red-500/80 hover:bg-red-500 shadow-red-500/20' : 'bg-primary/80 hover:bg-primary shadow-primary/20'}`}>Confirm Action</button>
+                     </>
+                 )}
+             </div>
+           </div>
+        </div>
+      )}
+
+      {!selectedPrompt ? (
+        <div className="space-y-8">
+          <div className="flex items-center justify-between border-b border-white/5 pb-4">
+            <div className="flex gap-8">
+              <button 
+                onClick={() => setActiveTab('blueprints')}
+                className={`flex items-center gap-2 pb-4 -mb-[17px] text-[10px] font-black uppercase tracking-[0.2em] transition-all border-b-2 ${activeTab === 'blueprints' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
+              >
+                <LayoutGrid className="w-4 h-4" />
+                Blueprint Library
+              </button>
+              <button 
+                onClick={() => setActiveTab('exemplars')}
+                className={`flex items-center gap-2 pb-4 -mb-[17px] text-[10px] font-black uppercase tracking-[0.2em] transition-all border-b-2 ${activeTab === 'exemplars' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
+              >
+                <History className="w-4 h-4" />
+                PromptTool Exemplars
+              </button>
+            </div>
+            <div className="flex items-center gap-3 px-3 py-1 bg-white/5 rounded-lg border border-white/10">
+               <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+               <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
+                 Live Ecosystem Node: {activeTab === 'blueprints' ? 'Master Registry' : 'PromptTool Global'}
+               </span>
+            </div>
+          </div>
+
+          {/* Explorer Navigation */}
+          <div className="flex items-center justify-between py-2 border-b border-white/5 pb-6">
+            <div className="flex items-center gap-4 flex-1">
+                <Search className="w-4 h-4 text-gray-400" />
+                <input
+                    type="text"
+                    placeholder="Search registry..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-transparent text-sm text-white placeholder:text-gray-500 outline-none w-full md:w-64"
+                />
+            </div>
+            <div className="flex items-center gap-3">
+                <select
+                    value={sortMode}
+                    onChange={(e) => setSortMode(e.target.value as any)}
+                >
+                    <option value="newest">Newest First</option>
+                    <option value="updated">Recently Updated</option>
+                    <option value="oldest">Oldest First</option>
+                    <option value="az">A-Z</option>
+                    <option value="za">Z-A</option>
+                </select>
+                <div className="flex bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                    <button 
+                        onClick={() => setViewMode('grid')}
+                        className={`p-1.5 transition-colors ${viewMode === 'grid' ? 'bg-primary text-white' : 'text-gray-500 hover:text-white'}`}
+                    >
+                        <LayoutGrid className="w-3.5 h-3.5" />
+                    </button>
+                    <button 
+                        onClick={() => setViewMode('list')}
+                        className={`p-1.5 transition-colors ${viewMode === 'list' ? 'bg-primary text-white' : 'text-gray-500 hover:text-white'}`}
+                    >
+                        <List className="w-3.5 h-3.5" />
+                    </button>
+                    <button 
+                        onClick={() => setViewMode('extended')}
+                        className={`p-1.5 transition-colors ${viewMode === 'extended' ? 'bg-primary text-white' : 'text-gray-500 hover:text-white'}`}
+                    >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                    </button>
+                </div>
+            </div>
+          </div>
+
+          <section className="relative min-h-[400px]">
+            {loadingLibrary ? (
+              <div className="flex flex-col items-center justify-center py-32 space-y-4 animate-pulse">
+                <RefreshCw className="w-12 h-12 text-primary/40 animate-spin-slow" />
+                <div className="flex flex-col items-center">
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-500">Initializing Ecosystem Node</span>
+                  <span className="text-[9px] font-bold text-gray-700 italic mt-1">Hydrating architectural registry...</span>
                 </div>
               </div>
-            </div>
-          ))}
-        </section>
+            ) : filteredList.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-32 border-2 border-dashed border-white/5 rounded-[2.5rem] bg-white/[0.02]">
+                <Database className="w-12 h-12 text-gray-700 mb-6 opacity-40" />
+                <div className="text-center">
+                  <h3 className="text-xs font-black uppercase tracking-[0.3em] text-gray-500 mb-2">Registry Entry Null</h3>
+                  <p className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">No architectures indexed in this node</p>
+                </div>
+              </div>
+            ) : (
+              <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 gap-8" : "flex flex-col gap-6"}>
+                {filteredList.map((p, i) => (
+                  <div 
+                    key={p.id} 
+                    onClick={() => handleSelect(p)} 
+                    className={`relative group cursor-pointer flex flex-col h-full animate-fade-in-up opacity-0 ${viewMode === 'list' ? '' : 'h-full'}`}
+                    style={{ animationDelay: `${i * 100}ms` }}
+                  >
+                    {/* Outer Glow Bloom */}
+                    <div className="absolute -inset-1 bg-gradient-to-r from-primary/40 to-accent/40 rounded-[2.5rem] blur-xl opacity-0 group-hover:opacity-60 transition-all duration-700 pointer-events-none"></div>
+                    
+                    <div className="relative glass-panel p-8 bg-white/5 hover:bg-[#12121a]/80 backdrop-blur-2xl transition-all duration-500 transform group-hover:scale-[1.03] group-hover:-translate-y-2 border-white/5 group-hover:border-primary/40 flex-1 flex flex-col justify-between shadow-2xl group-hover:shadow-primary/20">
+                      {p.isPersonal && (
+                        <div className="absolute -top-3 -right-3 px-4 py-1.5 bg-brand-gradient text-[9px] font-black uppercase tracking-[0.2em] rounded-full z-10 shadow-[0_0_20px_rgba(99,102,241,0.4)] ring-1 ring-white/20">
+                          Personal Record
+                        </div>
+                      )}
+                      {p.isExemplar && (
+                        <div className="absolute -top-3 -right-3 px-4 py-1.5 bg-primary/20 backdrop-blur-md text-[9px] font-black uppercase tracking-[0.2em] rounded-full z-10 shadow-lg border border-primary/40 text-primary">
+                          Exemplar Alpha
+                        </div>
+                      )}
+                      
+                      <div className={`flex items-start ${viewMode === 'extended' ? 'flex-col gap-6' : 'gap-8'}`}>
+                        <div className={`relative shrink-0 overflow-hidden border border-white/10 group-hover:border-primary/50 transition-colors shadow-2xl ${viewMode === 'extended' ? 'w-full h-48 rounded-[2rem]' : 'w-28 h-28 rounded-[2rem]'}`}>
+                          <img 
+                            src={p.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${p.id}`} 
+                            className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-700" 
+                            alt="" 
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        </div>
+                        <div className="flex-1 min-w-0 w-full">
+                           <div className="mb-2">
+                              <p className="text-[8px] font-black text-primary uppercase tracking-[0.2em] mb-0.5">Neural Identity</p>
+                              <h3 className={`font-black uppercase truncate transition-colors leading-tight ${!p.title ? "text-gray-500 italic text-sm" : "text-white group-hover:text-primary text-sm"}`}>
+                                {p.title || '<no title>'}
+                              </h3>
+                           </div>
+                          <p className={`text-xs text-gray-400 mt-2 font-medium ${viewMode === 'extended' ? 'leading-relaxed' : 'leading-relaxed line-clamp-2'}`}>{p.description}</p>
+                          
+                          {viewMode === 'extended' && p.template && (
+                             <div className="mt-4 p-4 bg-black/40 rounded-xl border border-white/5 relative group-hover:border-primary/20 transition-all">
+                                <p className="text-xs text-gray-500 font-mono italic leading-relaxed break-words">{p.template}</p>
+                             </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-8 flex items-center justify-between border-t border-white/5 pt-6">
+                        <div className="flex items-center gap-3">
+                           <div className="w-6 h-6 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+                              <Database className="w-3 h-3 text-gray-500" />
+                           </div>
+                           <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{p.isExemplar ? 'Global Resource' : 'Architectural DNA'}</span>
+                        </div>
+                        <span className="text-[10px] uppercase font-black tracking-[0.3em] text-primary translate-x-4 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 transition-all duration-500 flex items-center gap-3">
+                          Initialize <RefreshCw className="w-4 h-4" />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       ) : (
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start animate-fade-in-up opacity-0">
           <div className="space-y-6">
-            <button onClick={() => { setSelectedPrompt(null); resetProgress(); }} className="text-sm font-bold text-gray-500 hover:text-white flex items-center gap-2 transition-colors px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl w-fit"><X className="w-4 h-4" /> BACK TO LIBRARY</button>
+            <div className="flex items-center justify-between">
+               <button onClick={() => setSelectedPrompt(null)} className="text-sm font-bold text-gray-500 hover:text-white flex items-center gap-2 transition-colors px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl w-fit"><X className="w-4 h-4" /> BACK TO LIBRARY</button>
+               
+               <div className="flex bg-white/5 p-1 rounded-[1.2rem] border border-white/10 shadow-inner backdrop-blur-xl">
+                  <button 
+                    onClick={() => setActiveDetailTab('architect')}
+                    className={`flex items-center gap-2.5 px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] transition-all duration-500 ${activeDetailTab === 'architect' ? 'bg-primary text-white shadow-[0_10px_20px_-10px_rgba(99,102,241,0.6)] border border-primary/20' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                  >
+                     <Plus className={`w-3.5 h-3.5 ${activeDetailTab === 'architect' ? 'rotate-45' : ''} transition-transform duration-500`} /> 
+                     Architect
+                  </button>
+                  <button 
+                    onClick={() => setActiveDetailTab('media')}
+                    className={`flex items-center gap-2.5 px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] transition-all duration-500 ${activeDetailTab === 'media' ? 'bg-primary text-white shadow-[0_10px_20px_-10px_rgba(99,102,241,0.6)] border border-primary/20' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                  >
+                     <GalleryVertical className="w-3.5 h-3.5" /> 
+                     Media
+                  </button>
+               </div>
+            </div>
+
             <div className="relative group">
                <div className="absolute -inset-0.5 bg-gradient-to-br from-primary/30 to-accent/30 rounded-3xl blur opacity-25"></div>
                <div className="relative glass-panel p-8 space-y-8 bg-[#181825]/90 border-white/10 shadow-2xl">
-                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 border-b border-white/5 pb-6">
-                   <h2 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">{selectedPrompt.title}</h2>
-                   <div className="flex items-center gap-2 px-3 py-2 bg-black/40 rounded-xl border border-white/5 shadow-inner">
-                     <Sliders className="w-3 h-3 text-primary" />
-                     <select value={engine} onChange={(e) => setEngine(e.target.value)} className="bg-transparent text-[10px] tracking-widest font-black uppercase outline-none cursor-pointer text-gray-300">
-                       <option value="nanobanana-2.0">Nanobanana 2.0</option>
-                       <option value="nanobanana-pro">Nanobanana PRO</option>
-                     </select>
+                 <div className="flex flex-col gap-6 border-b border-white/5 pb-6">
+                   <div className="flex flex-col gap-2">
+                     <div className="relative group/title w-full">
+                        <input 
+                            type="text"
+                            value={selectedPrompt.title}
+                            onChange={(e) => setSelectedPrompt({...selectedPrompt, title: e.target.value})}
+                            className="bg-transparent text-2xl font-black text-white/90 outline-none w-full border-b border-white/5 focus:border-primary/50 transition-all pr-12 pb-1"
+                            placeholder="Blueprint Title..."
+                        />
+                        <Edit3 className="absolute right-2 top-1/2 -translate-y-1/2 w-5 h-5 text-white/20 group-hover/title:text-primary transition-colors pointer-events-none" />
+                     </div>
+                     <div className="flex items-center gap-4">
+                        <button 
+                            onClick={() => {
+                                const suggestion = suggestTitle(resultantPrompt);
+                                setConfirmModal({
+                                    isOpen: true,
+                                    title: 'Architectural Recommendation',
+                                    message: `Would you like to rename this blueprint to "${suggestion}"?`,
+                                    onConfirm: () => {
+                                        setSelectedPrompt({ ...selectedPrompt, title: suggestion });
+                                        setConfirmModal(null);
+                                    }
+                                });
+                            }}
+                            className="flex items-center gap-2 text-[10px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest px-3 py-1.5 bg-primary/10 rounded-lg border border-primary/20"
+                        >
+                            <Sparkles className="w-3 h-3" />
+                            Suggest Architectural Name
+                        </button>
+                        <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em]">Blueprint DNA</span>
+                     </div>
+                   </div>
+
+                   <div className="flex flex-wrap items-center gap-4">
+                     <div className="flex items-center gap-3 px-4 py-2 bg-white/5 rounded-xl border border-white/10 shadow-xl backdrop-blur-md">
+                        <Zap className="w-4 h-4 text-primary animate-pulse" />
+                        <select 
+                            value={engine}
+                            onChange={(e) => setEngine(e.target.value)}
+                        >
+                            <option value="vision-0">Visual Engine 1.0 (Standard)</option>
+                            <option value="architect-1">Architectural 2.0 (High Precision)</option>
+                            <option value="cinematic-3">Cinematic Ultra (Max Fidelity)</option>
+                        </select>
+                     </div>
+                     <div className="flex items-center gap-2 px-3 py-2 bg-black/40 rounded-xl border border-white/5 shadow-inner">
+                        <Sliders className="w-3 h-3 text-primary/60" />
+                        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">
+                            {Object.keys(variables).length} Controls Active
+                        </span>
+                     </div>
                    </div>
                  </div>
-                 <div className="space-y-6">
-                   {Object.keys(variables).map((v, i) => (
-                     <div key={v} className="space-y-2 animate-fade-in-up opacity-0" style={{ animationDelay: `${i * 100}ms` }}>
-                       <label className="text-[10px] font-black tracking-widest text-primary uppercase ml-2">{v}</label>
-                       <div className="relative group">
-                         <div className="absolute -inset-px bg-gradient-to-r from-primary/50 to-accent/50 rounded-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition duration-500"></div>
-                         <input type="text" value={variables[v]} onChange={(e) => setVariables(prev => ({ ...prev, [v]: e.target.value }))} className="relative w-full bg-[#12121a] border border-white/10 rounded-xl px-5 py-4 outline-none text-white font-medium placeholder:text-gray-700 focus:bg-black/80 transition-all shadow-inner" placeholder={`Insert ${v} context...`} />
-                       </div>
-                     </div>
-                   ))}
-                 </div>
+
+                 {activeDetailTab === 'architect' ? (
+                   <div className="space-y-8 animate-fade-in">
+                      <div className="space-y-3">
+                          <div className="flex justify-between items-center px-1">
+                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Blueprint Mode (Raw Template)</label>
+                              <div className="flex gap-4">
+                                  <button onClick={() => setIsEditingBlueprint(!isEditingBlueprint)} className="text-[9px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest">[ {isEditingBlueprint ? 'Lock Changes' : 'Edit Blueprint'} ]</button>
+                                  <button onClick={confirmRevert} className="text-[9px] font-black text-primary/50 hover:text-primary transition-colors uppercase tracking-widest">[ Revert Blueprint ]</button>
+                              </div>
+                          </div>
+                         {isEditingBlueprint ? (
+                             <textarea 
+                                 value={rawTemplate}
+                                 onChange={(e) => setRawTemplate(e.target.value)}
+                                 className="w-full h-40 bg-black/40 border border-primary/50 rounded-xl p-5 text-[15px] font-mono text-white transition-all resize-y shadow-inner outline-none leading-relaxed"
+                                 placeholder="Define your prompt architecture here..."
+                                 autoFocus
+                             />
+                         ) : (
+                             <div 
+                                 className="w-full min-h-[10rem] bg-black/40 border border-white/5 rounded-2xl p-6 text-[15px] leading-relaxed text-gray-400 font-mono shadow-inner overflow-y-auto cursor-pointer group-hover:border-primary/20 transition-all"
+                                 onClick={() => setIsEditingBlueprint(true)}
+                             >
+                                 {rawTemplate.split(/({{[^}]+}})/).map((part, i) => {
+                                     if (part.startsWith('{{') && part.endsWith('}}')) {
+                                         return (
+                                             <span key={i} className="text-primary font-black bg-primary/10 px-2 py-0.5 rounded-lg border border-primary/20 shadow-lg shadow-primary/10 inline-block mx-0.5 my-0.5 text-[13px]">
+                                                 {part}
+                                             </span>
+                                         );
+                                     }
+                                     return part;
+                                 })}
+                             </div>
+                         )}
+                      </div>
+
+                      <div className="space-y-6">
+                        {Object.keys(variables).map((v) => (
+                          <div key={v} className="space-y-2">
+                             <div className="flex justify-between items-center px-1">
+                                 <label className="text-[10px] font-black tracking-widest text-primary uppercase ml-1">{v}</label>
+                                 <div className="flex gap-4">
+                                     {variables[v].value && variables[v].value !== variables[v].default && (
+                                         <button onClick={() => setAsDefault(v)} className="text-[9px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest">[ Set as Default ]</button>
+                                     )}
+                                     {variables[v].value && variables[v].default && (
+                                         <button onClick={() => useDefault(v)} className="text-[9px] font-black text-white/20 hover:text-primary transition-colors uppercase tracking-widest">[ Use Default ]</button>
+                                     )}
+                                     {variables[v].value && (
+                                         <button onClick={() => clearInput(v)} className="text-[9px] font-black text-white/20 hover:text-red-400 transition-colors uppercase tracking-widest">[ Clear ]</button>
+                                     )}
+                                 </div>
+                             </div>
+                             <input 
+                                 type="text" 
+                                 value={variables[v].value} 
+                                 onChange={(e) => setVariables(prev => ({ ...prev, [v]: { ...prev[v], value: e.target.value } }))} 
+                                 className="w-full bg-[#12121a] border border-white/10 rounded-xl px-5 py-4 outline-none text-white font-medium placeholder:text-white/40 focus:bg-black/80 transition-all shadow-inner" 
+                                 placeholder={variables[v].default ? `Override: ${variables[v].default}...` : `Insert ${v} context...`} 
+                             />
+                          </div>
+                        ))}
+                      </div>
+                   </div>
+                 ) : (
+                   <div className="space-y-8 animate-fade-in">
+                      {/* Blueprint Asset Node */}
+                      <div className="space-y-8">
+                         <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
+                               <Layers className="w-5 h-5 text-primary" /> Multi-Layer Asset Node
+                            </h3>
+                            <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-lg border border-white/10">
+                               <div className="w-2 h-2 rounded-full bg-green-500 shadow-lg shadow-green-500/20"></div>
+                               <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Ecosystem Linked</span>
+                            </div>
+                         </div>
+
+                         <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                            {/* Current Blueprint Image */}
+                             <div className="group relative aspect-square rounded-[2rem] overflow-hidden border border-white/10 hover:border-primary/50 transition-all cursor-zoom-in shadow-xl" onClick={() => handleAssetSelection(selectedPrompt.thumbnailUrl || null, selectedPrompt.title, selectedPrompt.template || selectedPrompt.prompts?.[0])}>
+                                <img src={selectedPrompt.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${selectedPrompt.id}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt="" />
+                                <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex flex-col gap-2 z-20">
+                                   <div className="flex items-center justify-between pointer-events-auto">
+                                      <span className="text-[8px] font-black text-primary uppercase tracking-widest shrink-0">Current Thumbnail</span>
+                                      <button 
+                                        className="text-[8px] font-black text-white/60 hover:text-white uppercase tracking-widest transition-colors z-30"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setPreviewImageUrl(selectedPrompt.thumbnailUrl || null);
+                                            setPreviewTitle(selectedPrompt.title || '<no title>');
+                                            setPreviewPrompt(selectedPrompt.template || selectedPrompt.prompts?.[0] || null);
+                                        }}
+                                      >
+                                          [ Expand Image ]
+                                      </button>
+                                   </div>
+                                   <span className="text-[7px] text-gray-400 font-bold uppercase truncate pointer-events-none">{selectedPrompt.title || '<no title>'}</span>
+                                </div>
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm pointer-events-none z-10">
+                                   <Edit3 className="w-6 h-6 text-white" />
+                                </div>
+                             </div>
+
+                            {/* Generated Variations */}
+                             {generatedImages.map((img, idx) => (
+                               <div key={idx} className="group relative aspect-square rounded-[2rem] overflow-hidden border-2 border-primary/40 hover:border-primary transition-all cursor-zoom-in shadow-[0_0_30px_rgba(99,102,241,0.2)]" onClick={() => handleAssetSelection(img.url, img.title, img.prompt)}>
+                                  <img src={img.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt="" />
+                                  <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex flex-col gap-2 z-20">
+                                      <div className="flex items-center justify-between pointer-events-auto">
+                                          <span className="text-[8px] font-black text-primary uppercase shrink-0">VARIATION {generatedImages.length - idx}</span>
+                                          <button 
+                                            className="text-[8px] font-black text-white/60 hover:text-white uppercase tracking-widest transition-colors z-30"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setPreviewImageUrl(img.url);
+                                                setPreviewTitle(img.title || '<no title>');
+                                                setPreviewPrompt(img.prompt || null);
+                                            }}
+                                          >
+                                              [ Expand Image ]
+                                          </button>
+                                      </div>
+                                      <span className="text-[7px] text-gray-400 font-bold uppercase truncate pointer-events-none">{img.title || '<no title>'}</span>
+                                  </div>
+                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm pointer-events-none z-10">
+                                     <Edit3 className="w-6 h-6 text-white" />
+                                  </div>
+                               </div>
+                             ))}
+
+                            {/* Upload New Asset */}
+                            <div className="aspect-square rounded-[2rem] border-4 border-dashed border-white/10 hover:border-primary/40 flex flex-col items-center justify-center gap-4 group cursor-pointer transition-all hover:bg-primary/5">
+                               <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center group-hover:scale-110 group-hover:bg-primary/20 group-hover:border-primary/40 transition-all">
+                                  <UploadCloud className="w-6 h-6 text-gray-600 group-hover:text-primary transition-colors" />
+                               </div>
+                               <div className="text-center px-4">
+                                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest group-hover:text-white transition-colors">Infuse Media</p>
+                                  <p className="text-[8px] font-bold text-gray-700 uppercase mt-1">External Asset Upload</p>
+                               </div>
+                            </div>
+                         </div>
+
+                         <div className="bg-black/40 border border-white/5 rounded-3xl p-8 relative overflow-hidden group">
+                           <div className="absolute -inset-10 bg-primary/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                           <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+                               <div className="flex items-center gap-6">
+                                   <div className="w-16 h-16 rounded-[1.5rem] bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
+                                      <Database className="w-8 h-8 text-gray-700" />
+                                   </div>
+                                   <div>
+                                      <h4 className="text-sm font-black text-white uppercase tracking-widest mb-1">Ecosystem Asset Sync</h4>
+                                      <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest leading-relaxed">
+                                         Unified storage node synchronization is active. All media assets linked to this blueprint are cached at the ecosystem edge.
+                                      </p>
+                                   </div>
+                               </div>
+                               {selectedPrompt.isExemplar && (
+                                   <button 
+                                      onClick={() => window.open(`http://localhost:3001/community?entryId=${selectedPrompt.id}`, '_blank')}
+                                      className="px-6 py-3 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] text-primary transition-all flex items-center gap-2 shrink-0 pr-8 group/link"
+                                   >
+                                      <Sparkles className="w-4 h-4 group-hover/link:rotate-12 transition-transform" />
+                                      View in Hub
+                                   </button>
+                               )}
+                           </div>
+                        </div>
+                      </div>
+                   </div>
+                 )}
                </div>
             </div>
           </div>
 
-          <div className="space-y-6">
-            <div className="relative">
+          <div className="space-y-6 h-full flex flex-col">
+            <div className="relative flex-1">
               <div className="absolute -inset-1 bg-brand-gradient rounded-3xl blur opacity-20"></div>
               <div className="relative glass-panel p-8 space-y-8 bg-[#1c1c2b]/90 border-white/10 shadow-2xl flex flex-col h-full">
                  <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-                   <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse shadow-[0_0_10px_rgba(74,222,128,0.5)]"></div>
+                   <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Compiled Instructions</h3>
                  </div>
                  
-                 <div className="flex-1 bg-black/20 rounded-2xl p-6 border border-white/5 shadow-inner">
-                   <p className="text-xl leading-[1.8] text-gray-300 font-medium">
-                     {resultantPrompt.split(/(\[.*?\])/).map((s, i) => s.startsWith('[') ? <span key={i} className="text-primary font-black bg-primary/10 px-2 py-1 rounded-lg border border-primary/20">{s}</span> : s)}
-                   </p>
-                 </div>
+                 <div className="flex-1 bg-black/20 rounded-2xl p-6 border border-white/5 shadow-inner overflow-hidden">
+                    <p className="text-xl leading-[1.8] text-gray-300 font-medium">
+                      {resultantPrompt.split(/(__DEF__.*?__DEF__|__VAL__.*?__VAL__)/).map((s, i) => {
+                          if (s.startsWith('__DEF__')) return <span key={i} className="text-gray-400 italic px-1.5 py-0.5 bg-white/5 rounded-md border border-white/5 text-lg">{s.replace(/__DEF__/g, '')}</span>;
+                          if (s.startsWith('__VAL__')) return <span key={i} className="text-primary font-black bg-primary/10 px-2 py-1 rounded-lg border border-primary/20 shadow-lg shadow-primary/10">{s.replace(/__VAL__/g, '')}</span>;
+                          return s;
+                      })}
+                    </p>
+                  </div>
 
-                 <div className="space-y-4">
-                   <button onClick={handleSubmit} disabled={generating || !user || !resultantPrompt} className={`relative w-full overflow-hidden py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-300 ${generating || !user || !resultantPrompt ? 'opacity-50 cursor-not-allowed bg-white/5 text-gray-400' : 'bg-brand-gradient text-white hover:scale-[1.02] shadow-[0_0_30px_rgba(99,102,241,0.3)] hover:shadow-[0_0_40px_rgba(217,70,239,0.5)]'}`}>
-                     {generating && <div className="absolute inset-0 bg-white/20 animate-shimmer" style={{ backgroundSize: '200% auto', backgroundImage: 'linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent)' }}></div>}
-                     <span className="relative z-10 flex items-center gap-3">
-                       {generating ? <RefreshCw className="animate-spin w-5 h-5 text-white" /> : <Send className="w-5 h-5" />} 
-                       {generating ? 'Processing Neuromap...' : (!user ? 'Authenticate to Generate' : 'Initialize Generation')}
-                     </span>
-                   </button>
-                   
-                   {error && <p className="text-red-400 text-xs font-bold tracking-wide bg-red-400/10 p-4 rounded-xl border border-red-400/20 text-center animate-fade-in-up opacity-0">{error}</p>}
+                 <div className="space-y-6 mt-auto">
+                    <div className="flex gap-4">
+                        <button 
+                            onClick={() => saveBlueprint(false)}
+                            disabled={saveStatus !== 'idle'}
+                            className={`flex-1 flex items-center justify-center gap-3 px-6 py-4 rounded-2xl border transition-all font-black uppercase tracking-[0.2em] text-xs shadow-lg ${
+                                saveStatus === 'success' 
+                                ? 'bg-green-500/20 border-green-500/50 text-green-400' 
+                                : saveStatus === 'saving'
+                                ? 'bg-primary/20 border-primary/30 text-primary animate-pulse'
+                                : 'bg-primary border-primary/50 text-white hover:bg-primary/80 hover:scale-[1.02]'
+                            }`}
+                        >
+                            <Save className={`w-5 h-5 ${saveStatus === 'saving' ? 'animate-spin' : ''}`} />
+                            {saveStatus === 'saving' ? 'Persisting...' : saveStatus === 'success' ? 'Saved' : 'Save'}
+                        </button>
+
+                        <button 
+                            onClick={() => saveBlueprint(true)}
+                            className="flex items-center gap-3 px-6 py-4 rounded-2xl border border-white/10 bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all font-black uppercase tracking-[0.2em] text-xs hover:scale-[1.02]"
+                        >
+                            <Plus className="w-5 h-5" />
+                            Save as New
+                        </button>
+                    </div>
+
+                    <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between">
+                           <label className="flex items-center gap-2 cursor-pointer w-fit group">
+                              <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all ${isNewImageSet ? 'bg-primary border-primary' : 'bg-white/5 border-white/20 group-hover:border-primary/50'}`}>
+                                {isNewImageSet && <Sparkles className="w-2.5 h-2.5 text-white" />}
+                              </div>
+                              <input type="checkbox" checked={isNewImageSet} onChange={e => setIsNewImageSet(e.target.checked)} className="hidden" />
+                              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 group-hover:text-white transition-colors">Start New Image Set <span className="text-white/20 lowercase tracking-normal font-medium">(breaks variation lineage)</span></span>
+                           </label>
+                           {isNewImageSet && (
+                               <button
+                                   onClick={() => {
+                                       const newSetID = crypto.randomUUID();
+                                       if (selectedPrompt) {
+                                           setSelectedPrompt({ ...selectedPrompt, promptSetID: newSetID });
+                                       }
+                                       setIsNewImageSet(false);
+                                       saveBlueprint(false);
+                                   }}
+                                   disabled={saveStatus !== 'idle'}
+                                   className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-primary hover:text-white px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg transition-all"
+                               >
+                                   <Save className="w-3 h-3" />
+                                   Save New Set
+                               </button>
+                           )}
+                        </div>
+                        <button onClick={handleSubmit} disabled={generating || !user || !resultantPrompt} className={`relative w-full overflow-hidden py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-300 ${generating || !user || !resultantPrompt ? 'opacity-50 cursor-not-allowed bg-white/5 text-gray-400' : 'bg-brand-gradient text-white hover:scale-[1.02] shadow-[0_0_30px_rgba(99,102,241,0.3)]'}`}>
+                          <span className="relative z-10 flex items-center gap-3">
+                            {generating ? <RefreshCw className="animate-spin w-5 h-5" /> : <Send className="w-5 h-5" />} 
+                            {generating ? 'Processing Neuromap...' : 'Initialize Generation'}
+                          </span>
+                        </button>
+                    </div>
+
                  </div>
               </div>
             </div>
 
-            {/* Live Status Panel */}
             {(generating || completion) && (
-              <div className="relative animate-fade-in-up opacity-0">
-                <div className="absolute -inset-0.5 bg-gradient-to-br from-primary/20 to-accent/20 rounded-2xl blur opacity-30"></div>
-                <div className="relative glass-panel p-6 bg-[#12121e]/95 border-white/10 space-y-4">
-                  {/* Header */}
-                  <div className="flex items-center justify-between border-b border-white/5 pb-3">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
-                      <Zap className="w-3 h-3 text-primary" /> Generation Status
-                    </span>
-                    <span className="text-[10px] font-mono text-primary flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {formatElapsed(elapsed)}
-                    </span>
-                  </div>
-
-                  {/* Steps */}
-                  <div className="space-y-2">
-                    {steps.map(step => (
-                      <div key={step.id} className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-300 ${step.status === 'active' ? 'bg-primary/10 border border-primary/20' : step.status === 'done' ? 'opacity-60' : step.status === 'error' ? 'bg-red-500/10 border border-red-500/20' : 'opacity-30'}`}>
-                        <StepIcon status={step.status} />
-                        <span className={`text-xs font-bold tracking-wide ${step.status === 'active' ? 'text-white' : step.status === 'done' ? 'text-green-400' : step.status === 'error' ? 'text-red-400' : 'text-gray-600'}`}>
-                          {step.label}
-                        </span>
+              <div className="relative animate-fade-in-up">
+                <div className="absolute -inset-1 bg-brand-gradient rounded-3xl blur opacity-20"></div>
+                <div className="relative glass-panel p-8 bg-[#1c1c2b]/95 border border-white/10 shadow-2xl space-y-6">
+                  {generating ? (
+                    <div className="space-y-6">
+                      <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                        <div className="flex items-center gap-3">
+                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                          <h3 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Live Neural Stream</h3>
+                        </div>
+                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest tabular-nums">{formatElapsed(elapsed)} Elapsed</span>
                       </div>
-                    ))}
-                  </div>
 
-                  {/* Live Progress Message */}
-                  {progressMsg && generating && (
-                    <div className="bg-black/30 rounded-xl px-4 py-3 border border-white/5">
-                      <div className="flex justify-between text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">
-                        <span>{progressMsg}</span>
-                        {progressTotal > 1 && <span>{progressCurrent}/{progressTotal}</span>}
+                      <div className="grid grid-cols-5 gap-3">
+                        {status.map((step) => (
+                          <div key={step.id} className="flex flex-col gap-2">
+                             <div className={`h-1.5 rounded-full transition-all duration-500 ${step.status === 'done' ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.5)]' : step.status === 'active' ? 'bg-primary' : 'bg-white/5'}`}></div>
+                             <div className="flex items-center gap-1.5 px-1">
+                                <StepIcon stepStatus={step.status} />
+                                <span className={`text-[8px] font-black uppercase tracking-widest ${step.status === 'done' ? 'text-green-400' : step.status === 'active' ? 'text-white' : 'text-gray-600'}`}>{step.label}</span>
+                             </div>
+                          </div>
+                        ))}
                       </div>
-                      <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-brand-gradient rounded-full transition-all duration-500"
-                          style={{ width: progressTotal > 1 ? `${(progressCurrent / progressTotal) * 100}%` : '100%', animation: progressTotal <= 1 ? 'shimmer 2s infinite' : 'none' }}
-                        />
+
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-end">
+                           <p className="text-[10px] font-black text-primary uppercase tracking-widest flex items-center gap-2">
+                              <Sparkles className="w-3 h-3" />
+                              {progressMsg || 'Processing...'}
+                           </p>
+                           <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest tabular-nums">{Math.round((progressCurrent / progressTotal) * 100)}%</span>
+                        </div>
+                        <div className="h-1 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                           <div 
+                            className="h-full bg-brand-gradient transition-all duration-500 ease-out shadow-[0_0_15px_rgba(99,102,241,0.4)]"
+                            style={{ width: `${(progressCurrent / progressTotal) * 100}%` }}
+                           ></div>
+                        </div>
                       </div>
                     </div>
-                  )}
+                  ) : completion && (
+                    <div className="space-y-6 animate-in zoom-in-95 duration-500">
+                       <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                          <div className="flex items-center gap-3">
+                             <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
+                             <h3 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Generation Successful</h3>
+                          </div>
+                          <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest tabular-nums">Manifest Rendered in {completion.elapsed}s</span>
+                       </div>
 
-                  {/* Completion Summary */}
-                  {completion && !generating && (
-                    <div className="bg-green-500/5 border border-green-500/20 rounded-xl p-4 space-y-2 animate-fade-in-up opacity-0">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-green-400 flex items-center gap-2 mb-3">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Generation Complete
-                      </p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-black/20 rounded-lg p-2 text-center">
-                          <p className="text-[9px] text-gray-500 uppercase tracking-widest">Duration</p>
-                          <p className="text-sm font-black text-white">{formatElapsed(completion.elapsed || 0)}</p>
-                        </div>
-                        {completion.creditsUsed !== undefined && (
-                          <div className="bg-black/20 rounded-lg p-2 text-center">
-                            <p className="text-[9px] text-gray-500 uppercase tracking-widest">Credits Used</p>
-                            <p className="text-sm font-black text-white">{completion.creditsUsed}</p>
+                       <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col items-center gap-2">
+                             <Zap className="w-4 h-4 text-primary" />
+                             <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest">Architectural Cost</p>
+                             <p className="text-sm font-black text-white">{completion.creditsUsed} Credits</p>
                           </div>
-                        )}
-                        {completion.remainingBalance !== undefined && (
-                          <div className="bg-black/20 rounded-lg p-2 text-center col-span-2">
-                            <p className="text-[9px] text-gray-500 uppercase tracking-widest">Remaining Balance</p>
-                            <p className="text-sm font-black text-primary">{completion.remainingBalance} credits</p>
+                          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col items-center gap-2">
+                             <Database className="w-4 h-4 text-primary" />
+                             <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest">Remaining Nodes</p>
+                             <p className="text-sm font-black text-white tabular-nums">{completion.remainingBalance}</p>
                           </div>
-                        )}
-                      </div>
+                       </div>
+
+                       <button 
+                        onClick={() => {
+                          setCompletion(null);
+                          setActiveDetailTab('media');
+                        }}
+                        className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all"
+                       >
+                          View Gallery Distribution
+                       </button>
                     </div>
                   )}
                 </div>
               </div>
             )}
+            
+            {generatedImages.length > 0 && (
+                <div 
+                    className="relative group cursor-zoom-in"
+                    onClick={() => { 
+                        setPreviewImageUrl(generatedImages[0].url); 
+                        setPreviewTitle(generatedImages[0].title || '<no title>'); 
+                        setPreviewPrompt(generatedImages[0].prompt || null);
+                    }}
+                >
+                  <div className="absolute -inset-1 bg-brand-gradient rounded-3xl blur opacity-30 group-hover:opacity-50 transition-all duration-500"></div>
+                  <img src={generatedImages[0].url} className="relative w-full rounded-2xl shadow-2xl border border-white/10 group-hover:scale-[1.01] transition-transform duration-500" alt="Result" />
+                  
+                  {/* Hover Overlay */}
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl flex items-center justify-center backdrop-blur-sm">
+                      <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20 transform scale-75 group-hover:scale-100 transition-transform duration-500">
+                          <ZoomIn className="w-8 h-8 text-white" />
+                      </div>
+                      <span className="absolute bottom-6 text-[10px] font-black text-white uppercase tracking-[0.2em] opacity-0 group-hover:opacity-100 transition-opacity">Expand Vision Preview</span>
+                  </div>
+                </div>
+            )}
           </div>
-          
-          {/* Output Image Section */}
-          {generatedImage && (
-            <div className="lg:col-span-2 relative mt-8 animate-fade-in-up opacity-0">
-               <div className="absolute -inset-1 bg-brand-gradient rounded-3xl blur opacity-30"></div>
-               <div className="relative glass-panel bg-black/60 p-2 rounded-2xl border-white/10">
-                 <img src={generatedImage} className="w-full rounded-xl shadow-2xl object-cover ring-1 ring-white/10" alt="Generated Visual" />
-                 <div className="absolute bottom-6 right-6 flex items-center gap-2 bg-black/60 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 opacity-0 hover:opacity-100 transition-opacity cursor-pointer">
-                    <Image className="w-3.5 h-3.5 text-white" />
-                    <span className="text-[10px] uppercase font-black tracking-widest text-white">Save to Asset Library</span>
-                 </div>
-               </div>
-            </div>
-          )}
         </section>
+      )}
+      {/* Image Preview Modal */}
+      {previewImageUrl && (
+        <div 
+          className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-12 backdrop-blur-3xl bg-black/80 animate-fade-in"
+          onClick={() => { setPreviewImageUrl(null); setPreviewPrompt(null); }}
+        >
+           <button 
+             onClick={() => { setPreviewImageUrl(null); setPreviewPrompt(null); }}
+             className="absolute top-8 right-8 z-[120] p-4 bg-white/5 hover:bg-red-500 text-white rounded-2xl border border-white/10 transition-all group"
+           >
+              <X className="w-6 h-6 group-hover:scale-110 transition-transform" />
+           </button>
+
+           <div 
+             className="relative max-w-7xl w-full max-h-[90vh] flex flex-col md:flex-row items-stretch rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/10 group/modal bg-[#181825]"
+             onClick={(e) => e.stopPropagation()}
+           >
+              <div className="flex-1 relative flex items-center justify-center bg-black/50 overflow-hidden">
+                  <div className="absolute -inset-10 bg-brand-gradient opacity-20 blur-3xl animate-pulse pointer-events-none"></div>
+                  <img 
+                    src={previewImageUrl} 
+                    className="relative w-full h-full object-contain z-10 p-4 md:p-8" 
+                    alt="Vision Preview" 
+                  />
+                  
+                  <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 px-8 py-3 bg-black/60 backdrop-blur-xl border border-white/10 rounded-full flex items-center gap-4 opacity-0 group-hover/modal:opacity-100 transition-opacity duration-500">
+                     <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-primary" />
+                        <span className="text-xs font-black text-white uppercase tracking-widest whitespace-nowrap">{previewTitle || 'High-Fidelity Neural Output'}</span>
+                     </div>
+                     <div className="h-4 w-px bg-white/10"></div>
+                     <button 
+                      onClick={() => window.open(previewImageUrl, '_blank')}
+                      className="text-[10px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest"
+                     >
+                        Source Raw Link
+                     </button>
+                  </div>
+              </div>
+
+              {previewPrompt && [...previewPrompt.matchAll(/{{(.*?)}}/g)].length > 0 && (
+                <div className="w-full md:w-96 bg-[#1a1b26] border-l border-white/10 p-8 flex flex-col gap-6 overflow-y-auto hidden md:flex z-20">
+                    <div>
+                        <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
+                            <Sliders className="w-4 h-4" />
+                            Active Variables
+                        </h4>
+                        <p className="text-xs text-gray-500 max-w-[200px]">Metadata parameter values structurally embedded in this generation.</p>
+                    </div>
+                    <div className="space-y-4">
+                        {[...previewPrompt.matchAll(/{{(.*?)}}/g)].map((match, idx) => {
+                            const parts = match[1].split(':');
+                            const key = parts[0];
+                            const val = parts.length > 1 ? parts[1] : '<undefined>';
+                            return (
+                                <div key={idx} className="bg-white/5 border border-white/5 p-4 rounded-xl flex flex-col gap-1 hover:border-primary/30 transition-colors">
+                                    <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">{key}</span>
+                                    <span className="text-sm font-medium text-white break-words">{val}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+              )}
+           </div>
+        </div>
       )}
     </div>
   );

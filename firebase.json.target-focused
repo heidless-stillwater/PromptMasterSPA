@@ -1,0 +1,6 @@
+{
+  "firestore": {
+    "database": "promptmaster-spa-db-0",
+    "rules": "firestore.rules"
+  }
+}

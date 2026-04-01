@@ -13,7 +13,9 @@ export const triggerGeneration = async (
   prompt: string, 
   userId: string, 
   idToken: string,
-  onEvent: (event: GenerationProgress) => void
+  onEvent: (event: GenerationProgress) => void,
+  title?: string,
+  promptSetID?: string
 ) => {
   try {
     const API_URL = import.meta.env.VITE_PROMPTTOOL_API_URL || '/api/generate';
@@ -26,6 +28,8 @@ export const triggerGeneration = async (
       body: JSON.stringify({
         prompt,
         uid: userId,
+        title: title, // Pass the blueprint title
+        promptSetID: promptSetID, // Pass the lineage ID for grouping
         quality: 'standard',
         aspectRatio: '16:9',
         promptType: 'freeform',

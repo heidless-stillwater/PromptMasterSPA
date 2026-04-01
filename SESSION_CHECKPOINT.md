@@ -1,22 +1,24 @@
-# PromptMaster SPA Integration: Final Session Summary
-**Status: 100% Complete**
+### Session Summary: PromptMaster SPA Stabilization & PromptTool Ecosystem Sync
 
-## Overview
-This document serves as the save-point for the successful completion of the **PromptMaster** integration layer. We successfully bridged the local React Single Page Application (SPA) with the fully-fleshed Image Generation API housed within the `PromptTool` codebase, overcoming authentication mismatch errors and environment scaling issues.
+This session focused on resolving severe structural and runtime crashes within the `PromptMasterSPA` project, expanding the library explorer's feature set, and beginning the cross-application unification by enabling explicit database saves inside the `PromptTool` generator.
 
-## Primary Milestones Reached
-1. **Cross-App Firebase Auth Sync**: Implemented a robust secure Firebase ID token pass-through inside the API Header (`Authorization: Bearer <token>`), guaranteeing that valid Firebase `uid` identities sync correctly with the Generation Engine.
-2. **Private Key Parsing Fixed**: Resolved a critical node crash (`Invalid PEM formatted message`) occurring because Next.js environment handlers and Node.js disagreed locally on double-quote escaping. Migrated out the corrupted local `.env` key entirely and constructed a 100% resilient `replace` logic block in the `firebase-admin.ts` driver.
-3. **CORS Headers Secured**: Fully implemented cross-origin POST handling (`export async function OPTIONS()`) ensuring standard browser pre-flight checks (`Access-Control-Allow-Origin: *`) succeed without blocking when attempting a live production generation trace.
-4. **Vite Proxy vs Dynamic URL**: Abstracted `fetch('/api/generate')` safely to an injected environment string (`import.meta.env.VITE_PROMPTTOOL_API_URL`) so local development elegantly routes through Vite proxy, whereas production statically triggers the external backend.
-5. **Premium UI Evolution**: Applied "Stillwater Studio" aesthetic markers including sweeping `animate-fade-in-up` sequences, animated CSS glowing inputs, and a custom `@keyframes shimmer` on generation handlers, directly avoiding messy uninstalled `tailwindcss-animate` dependency breakages.
-6. **Multi-Site Firebase Deployment**: Programmatically spun up `promptmaster-v0.web.app` on Google Cloud and completed a pristine `npm run build && firebase deploy` sequence statically serving the finished app out to the world.
+#### Key Accomplishments
+1. **Critical Crash Resolutions (`PromptMasterSPA`)**: 
+   - Fixed a Vite (`oxc`) parser panic by safely extracting complex array mutations (`.filter`, `.sort`) out of the inline TSX render cycle.
+   - Guarded against React Error Boundary crashes by injecting robust null-coalescing and optional chaining to handle malformed legacy documents missing `title` or `description` properties.
+2. **Advanced Explorer Metrology (`PromptMasterSPA`)**:
+   - Expanded the `Prompt` interface to dynamically absorb `createdAt` and `updatedAt` Firestore Timestamps safely.
+   - Upgraded the Library's `sortMode` controls, adding abilities to filter architectural blueprints by `Created (Newest)`, `Created (Oldest)`, and `Recently Updated`.
+3. **Unified Identity & Authentication UI (`PromptMasterSPA`)**:
+   - Deployed `AuthModal.tsx` directly into the `Header` to support comprehensive "Initialize Identity" (Sign-up) and "Authenticate" (Sign-in) flows via Email/Password.
+4. **PromptTool Vault Mechanics (`PromptTool`)**:
+   - Added a `handleSaveVariation` mechanic natively into `/app/generate/page.tsx`.
+   - Connected `PreviewSection.tsx` to explicitly display a **"Save Variation to Registry"** button so users can inject custom-edited iterations (or overlay states) directly into their centralized cloud registry without relying purely on generation auto-saves.
 
-## Architectural Decision Record
-* **Static Export Limitations Identified**: Discovered that the companion app `PromptTool`'s package build system actively strips serverless components (via `build:export`). The realization was made that API routes natively cannot fire on purely static Firebase Web Hosting configurations.
-* **Google Cloud Transition Mandate**: Determined that `PromptTool` requires a direct migration from stripped static-HTML to a full Firebase App Hosting / Cloud Run instance (leveraging SSR capabilities) in order for the newly deployed web SPA to generate imagery properly in production.
+#### Immediate Tasks for Next Session
+1. **Always-On Prompt Architecting (`PromptTool`)**:
+   - **User Request**: *"save > not seeing it > i want it visible & functional from creation onwards > it is okay to save a partially completed prompt or no generated image yet > that will allow me to share the prompt with promptmaster"*
+   - **Objective**: Decouple the "Save to Registry" button from the `editedImage` state. The button must be visible globally in the Generate UI (perhaps in `GenerateHeader` or above the master preview) so that users can save *just the text prompt and settings parameters* into the database before pushing the model for an image creation. This forms a structural bridge to share raw architectural templates with `PromptMasterSPA`.
 
-## Next Phase Target
-The subsequent objective transitions entirely out of `PromptMasterSPA` and shifts strictly to overhauling the backend repository `PromptTool`.
-- [ ] Migrate `PromptTool` away from strict local `export` and into Firebase Web Frameworks (Cloud Run).
-- [ ] Ensure all generation operations handle scale correctly inside the serverless functions container.
+***
+*Note: The environments are running and live. Ready to execute the prompt-only saving architecture upon next boot.*

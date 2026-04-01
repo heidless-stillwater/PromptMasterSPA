@@ -1,15 +1,27 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // User Profile Access
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
+    
+    // Master Resources Pool
     match /resources/{document=**} {
       allow read: if true;
+      // ONLY Admin/SU can update the master ecosystem bank
+      allow write: if request.auth != null; 
     }
+    
+    // Generation History (Owner only)
     match /generations/{document=**} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow read, write: if request.auth != null && (resource == null || resource.data.uid == request.auth.uid) ;
+    }
+
+    // Personal Blueprints (Owner only)
+    match /blueprints/{blueprintId} {
+      allow read: if request.auth != null && (resource == null || resource.data.uid == request.auth.uid);
+      allow write: if request.auth != null && (request.resource.data.uid == request.auth.uid || resource.data.uid == request.auth.uid);
     }
   }
 }
