@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, X, AlertCircle, Loader2 } from 'lucide-react';
 import { Routes, Route, useSearchParams } from 'react-router-dom';
 import PromptMaster from './components/PromptMaster';
 import AdminConsole from './components/AdminConsole';
@@ -11,6 +11,7 @@ function App() {
   const { loading } = useAuth();
   const [searchParams] = useSearchParams();
   const [currentTheme, setCurrentTheme] = useState('midnight');
+  const [activeTab, setActiveTab] = useState<'blueprints' | 'exemplars'>('blueprints');
 
   const themes = {
     midnight: 'from-[#181825] to-[#1e1e2e]',
@@ -24,6 +25,19 @@ function App() {
         setCurrentTheme(urlTheme);
      }
   }, [searchParams]);
+  const [confirmModal, setConfirmModal] = useState<{ 
+    isOpen: boolean; 
+    title: string; 
+    message: string; 
+    onConfirm?: () => void; 
+    isDanger?: boolean;
+    saving?: boolean;
+    customButtons?: Array<{
+        label: string;
+        onClick: () => void;
+        className?: string;
+    }>;
+  } | null>(null);
 
   if (loading) return (
     <div style={{ minHeight: '100vh', backgroundColor: '#181825', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -41,7 +55,7 @@ function App() {
         <section className="animate-fade-in-up opacity-0" style={{ animationDelay: '200ms' }}>
            <div className="flex justify-between items-end">
               <div className="space-y-2">
-                 <h2 className="text-4xl md:text-5xl font-black tracking-tighter">Customize &<br/><span className="brand-gradient-text uppercase">Generate</span></h2>
+                 <h2 className="text-4xl md:text-5xl font-black tracking-tighter">Customize<br/><span className="brand-gradient-text uppercase">{activeTab === 'blueprints' ? 'Blueprint Registry' : 'PromptTool Exemplars'}</span></h2>
               </div>
               <div className="text-right hidden md:block">
                  <p className="text-xs font-bold text-gray-600 uppercase tracking-widest mb-1">Active Engine</p>
@@ -56,8 +70,8 @@ function App() {
         {/* UI Framework with Dynamic Routes */}
         <div className="animate-fade-in-up opacity-0" style={{ animationDelay: '500ms' }}>
            <Routes>
-              <Route path="/" element={<PromptMaster />} />
-              <Route path="/p/:promptId" element={<PromptMaster />} />
+              <Route path="/" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} confirmModal={confirmModal} setConfirmModal={setConfirmModal} />} />
+              <Route path="/p/:promptId" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} confirmModal={confirmModal} setConfirmModal={setConfirmModal} />} />
               <Route path="/admin" element={<AdminConsole />} />
            </Routes>
         </div>
@@ -75,6 +89,44 @@ function App() {
            <a href="#" className="hover:text-white transition-colors underline decoration-primary/50 underline-offset-4">Report an error</a>
         </div>
       </footer>
+
+      {confirmModal?.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-xl bg-black/60 transition-all duration-300">
+           <div className="relative glass-panel p-8 w-full max-w-md bg-[#181825]/95 border-primary/20 shadow-[0_0_50px_rgba(99,102,241,0.2)] text-white">
+             <div className="flex items-center gap-4 mb-6">
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${confirmModal.isDanger ? 'bg-red-500/10 border border-red-500/30' : 'bg-primary/10 border border-primary/30'}`}>
+                   {confirmModal.isDanger ? <AlertCircle className="w-6 h-6 text-red-400"/> : <Sparkles className="w-6 h-6 text-primary"/>}
+                </div>
+                <div>
+                   <h3 className="text-xl font-black text-white">{confirmModal.title}</h3>
+                   <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">Architecture Safety Guard</p>
+                </div>
+             </div>
+             <p className="text-sm text-gray-400 leading-relaxed mb-8">{confirmModal.message}</p>
+             <div className="grid grid-cols-2 gap-4">
+                 {confirmModal.customButtons ? (
+                     confirmModal.customButtons.map((btn, idx) => (
+                         <button key={idx} onClick={btn.onClick} className={btn.className}>
+                             {btn.label}
+                         </button>
+                     ))
+                 ) : (
+                     <>
+                        <button onClick={() => setConfirmModal(null)} className="py-3 px-6 rounded-xl border border-white/10 text-xs font-black uppercase tracking-widest text-gray-400 hover:bg-white/5 transition-all outline-none">Cancel</button>
+                         <button 
+                            onClick={confirmModal.onConfirm} 
+                            disabled={confirmModal.saving}
+                            className={`py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all shadow-lg flex items-center justify-center gap-2 outline-none ${confirmModal.isDanger ? 'bg-red-500/80 hover:bg-red-500 shadow-red-500/20' : 'bg-primary/80 hover:bg-primary shadow-primary/20'} ${confirmModal.saving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                         >
+                            {confirmModal.saving && <Loader2 className="w-3 h-3 animate-spin"/>}
+                            {confirmModal.saving ? 'Processing...' : 'Confirm Action'}
+                         </button>
+                     </>
+                 )}
+             </div>
+           </div>
+        </div>
+      )}
     </div>
   );
 }

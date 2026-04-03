@@ -15,7 +15,9 @@ export const triggerGeneration = async (
   idToken: string,
   onEvent: (event: GenerationProgress) => void,
   title?: string,
-  promptSetID?: string
+  promptSetID?: string,
+  variables?: Record<string, { value: string, default: string }>,
+  template?: string
 ) => {
   try {
     const API_URL = import.meta.env.VITE_PROMPTTOOL_API_URL || '/api/generate';
@@ -34,7 +36,9 @@ export const triggerGeneration = async (
         aspectRatio: '16:9',
         promptType: 'freeform',
         count: 1,
-        modality: 'image'
+        modality: 'image',
+        variables, // Architectural metadata
+        template // Blueprint snapshot with tags
       }),
     });
 
