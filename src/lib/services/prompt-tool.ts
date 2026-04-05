@@ -17,7 +17,8 @@ export const triggerGeneration = async (
   title?: string,
   promptSetID?: string,
   variables?: Record<string, { value: string, default: string }>,
-  template?: string
+  template?: string,
+  signal?: AbortSignal
 ) => {
   try {
     const API_URL = import.meta.env.VITE_PROMPTTOOL_API_URL || '/api/generate';
@@ -40,6 +41,7 @@ export const triggerGeneration = async (
         variables, // Architectural metadata
         template // Blueprint snapshot with tags
       }),
+      signal
     });
 
     if (!response.ok) {

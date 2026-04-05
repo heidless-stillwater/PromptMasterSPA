@@ -1,23 +1,27 @@
 @import "tailwindcss";
 
 :root {
-  --primary: #6366f1;
-  --accent: #d946ef;
-  --background: #181825;
-  --foreground: #f8f8f2;
+  --primary: #6366f1; /* Indigo 500 */
+  --accent: #8b5cf6;  /* Violet 500 */
+  --background: #0a0a0f; /* Deep Midnight */
+  --background-secondary: #0d0d12;
+  --foreground: #f5f5f7;
+  --foreground-muted: #a1a1aa;
 }
 
 @theme {
   --color-primary: #6366f1;
-  --color-accent: #d946ef;
-  --color-background: #181825;
-  --color-background-secondary: #1e1e2e;
-  --color-foreground: #f8f8f2;
+  --color-accent: #8b5cf6;
+  --color-background: #0a0a0f;
+  --color-background-secondary: #0d0d12;
+  --color-foreground: #f5f5f7;
+  --color-foreground-muted: #a1a1aa;
   
-  --background-image-brand-gradient: linear-gradient(135deg, #6366f1, #d946ef);
+  --background-image-brand-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
   
   --animate-shimmer: shimmer 2s linear infinite;
   --animate-fade-in-up: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  --animate-fade-in-right: fadeInRight 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   --animate-fade-in: fadeIn 0.5s ease-out forwards;
   
   @keyframes shimmer {
@@ -30,6 +34,11 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
+  @keyframes fadeInRight {
+    from { opacity: 0; transform: translateX(30px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
   @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
@@ -37,17 +46,22 @@
 }
 
 body {
-  @apply bg-background text-foreground antialiased;
+  @apply bg-background text-foreground antialiased selection:bg-primary/30;
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  letter-spacing: -0.01em;
 }
 
 .glass-panel {
-  @apply bg-white/5 backdrop-blur-lg border border-white/10 rounded-2xl;
+  @apply bg-white/[0.02] backdrop-blur-2xl border border-white/5 rounded-3xl shadow-2xl;
 }
 
 .brand-gradient-text {
-  @apply text-transparent bg-clip-text bg-[image:linear-gradient(135deg,#6366f1,#d946ef)];
+  @apply text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent font-black tracking-tighter uppercase;
+}
+
+.premium-label {
+    @apply text-[10px] font-black uppercase tracking-[0.2em] text-foreground/50;
 }
 
 .animate-spin-slow {
@@ -59,9 +73,23 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-white/10 rounded-full hover:bg-primary/40 transition-colors;
+}
+
 /* Custom Dropdown Styling */
 select {
-  @apply bg-white/5 text-gray-400 border-white/10 rounded-xl px-4 py-2 outline-none cursor-pointer transition-all duration-300;
+  @apply bg-[#12121a] text-gray-400 border border-white/10 rounded-xl px-4 py-2 outline-none cursor-pointer transition-all duration-300;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -71,11 +99,11 @@ select {
 }
 
 select:hover {
-  @apply bg-white/10 text-white border-primary/30;
+  @apply bg-white/10 text-white border-primary/30 shadow-lg shadow-primary/10;
 }
 
 select option {
-  background-color: var(--background);
-  color: var(--foreground);
+  @apply bg-[#0d0d12] text-foreground;
   padding: 12px;
 }
+

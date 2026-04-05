@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { collection, getDocs, addDoc, serverTimestamp, doc, setDoc, query, where, orderBy, deleteDoc } from 'firebase/firestore';
+import { createPortal } from 'react-dom';
+import { collection, getDocs, addDoc, serverTimestamp, doc, setDoc, query, where, deleteDoc } from 'firebase/firestore';
 import { db, resourcesDb, toolDb } from '../lib/firebase';
 import { 
   X, 
@@ -24,8 +25,6 @@ import {
   CheckCircle2,
   AlertCircle,
   Loader2,
-  ChevronDown,
-  Grid,
   Check,
   Trash2,
   Copy
@@ -33,6 +32,8 @@ import {
 import { triggerGeneration, type GenerationProgress } from '../lib/services/prompt-tool';
 import { useAuth } from '../contexts/AuthContext';
 import { useParams } from 'react-router-dom';
+import { RegistryVariations } from './RegistryVariations';
+import PromptToolGallery from './PromptToolGallery';
 
 interface Prompt {
   id: string;
@@ -45,16 +46,46 @@ interface Prompt {
   isExemplar?: boolean;
   createdAt?: number;
   updatedAt?: number;
-  promptSetID?: string;
+  promptSetID?: string | null;
+  authorName?: string;
+}
+
+interface Variation {
+  id?: string;         // Firestore document ID for direct deletion
+  url: string;
+  title?: string;
+  prompt?: string;
+  variables?: Record<string, { value: string; default: string }>;
+  uid?: string;
+  isOriginal?: boolean;
 }
 
 const parseDate = (val: any): number => {
-    if (!val) return 0;
+    if (!val) return Date.now(); // Default to now if missing
     if (typeof val.toMillis === 'function') return val.toMillis();
     if (typeof val.seconds === 'number') return val.seconds * 1000;
     if (val instanceof Date) return val.getTime();
     if (typeof val === 'number') return val;
-    return new Date(val).getTime() || 0;
+    return new Date(val).getTime() || Date.now();
+};
+
+const calculateComplexity = (template?: string, prompts?: string[]) => {
+  const content = template || (prompts && prompts[0]) || '';
+  const vars = content.match(/{{[^}]+}}/g);
+  return vars ? Math.min(vars.length, 8) / 8 : 0.1;
+};
+
+const calculateFreshness = (updatedAt?: number) => {
+  if (!updatedAt) return 0.5;
+  const ageInDays = (Date.now() - updatedAt) / (1000 * 60 * 60 * 24);
+  return Math.max(0.1, 1 - Math.min(ageInDays / 30, 0.9)); // Degrade over 30 days
+};
+
+const calculateUsageRating = (id: string) => {
+  // Mocking usage rating based on ID hash for persistent "popularity" feel
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  return 0.3 + (Math.abs(hash % 70) / 100); // 30% to 100% range
 };
 
 
@@ -127,29 +158,30 @@ const StepIcon = ({ stepStatus }: { stepStatus: StatusStep['status'] }) => {
 };
 
 interface PromptMasterProps {
-  activeTab: 'blueprints' | 'exemplars';
-  setActiveTab: (tab: 'blueprints' | 'exemplars') => void;
-  confirmModal: any;
+  activeTab: 'blueprints' | 'exemplars' | 'gallery';
+  setActiveTab: (tab: 'blueprints' | 'exemplars' | 'gallery') => void;
   setConfirmModal: (modal: any) => void;
 }
 
 const PromptMaster: React.FC<PromptMasterProps> = ({ 
     activeTab, 
     setActiveTab,
-    confirmModal,
     setConfirmModal
 }) => {
-  const { user, profile } = useAuth();
+  const { user, profile, topUpCredits } = useAuth();
   const { promptId } = useParams();
   
   // Library State
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [exemplars, setExemplars] = useState<Prompt[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(true);
-
+  const [lastCommittedPrompt, setLastCommittedPrompt] = useState<string>('');
+  const [viewingMetrics, setViewingMetrics] = useState<Prompt | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [gallerySearchQuery, setGallerySearchQuery] = useState('');
+  const [initialGalleryAssetId, setInitialGalleryAssetId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<'az' | 'za' | 'newest' | 'oldest' | 'updated'>('updated');
-  const [viewMode, setViewMode] = useState<'grid' | 'list' | 'extended'>('grid');
+  const [viewMode, setViewMode] = useState<'grid-2' | 'grid-3' | 'grid-4' | 'list' | 'extended'>('grid-4');
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [rawTemplate, setRawTemplate] = useState('');
   const [variables, setVariables] = useState<Record<string, { value: string, default: string }>>({});
@@ -159,8 +191,9 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
   // Engine State
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loadedVariationsCount, setLoadedVariationsCount] = useState(0);
+  const [generatedImages, setGeneratedImages] = useState<Variation[]>([]);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
-  const [generatedImages, setGeneratedImages] = useState<Array<{ url: string, title?: string, prompt?: string, variables?: Record<string, { value: string, default: string }> }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<StatusStep[]>(INITIAL_STEPS);
   const [progressMsg, setProgressMsg] = useState('');
@@ -169,19 +202,35 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
   const [previewTitle, setPreviewTitle] = useState<string | null>(null);
   const [previewPrompt, setPreviewPrompt] = useState<string | null>(null);
   const [activeDetailTab, setActiveDetailTab] = useState<'architect' | 'media'>('architect');
+  const [notification, setNotification] = useState<{ id: string; title: string } | null>(null);
   const [isNewImageSet, setIsNewImageSet] = useState<boolean>(false);
-  const [originalThumbnail, setOriginalThumbnail] = useState<string | null>(null);
-  const [variationsViewMode, setVariationsViewMode] = useState<'grid' | 'list'>('grid');
+  const [originalSnapshot, setOriginalSnapshot] = useState<{ url: string | null, title: string, prompt: string } | null>(null);
+  const [variationsViewMode, setVariationsViewMode] = useState<'list' | 'grid-2' | 'grid-3' | 'grid-4' | 'grid-6' | 'grid-8' | 'extended'>(() => {
+    try {
+        const saved = window.localStorage.getItem('promptmaster_variationsViewMode');
+        return (saved as any) || 'grid-3';
+    } catch (e) {
+        return 'grid-3';
+    }
+  });
+
+  useEffect(() => {
+    try {
+        window.localStorage.setItem('promptmaster_variationsViewMode', variationsViewMode);
+    } catch (e) {}
+  }, [variationsViewMode]);
   const [isVariationsCollapsed, setIsVariationsCollapsed] = useState(false);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [selectedVariations, setSelectedVariations] = useState<Set<string>>(new Set());
+
+  const VAR_REGEX = /{{(.*?)}}/g;
 
   // Progress tracking
   const [elapsed, setElapsed] = useState(0);
-  const [progressCurrent, setProgressCurrent] = useState(0);
-  const [progressTotal, setProgressTotal] = useState(1);
   const [completion, setCompletion] = useState<CompletionSummary | null>(null);
   const startTimeRef = useRef<number>(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fetchPrompts = async () => {
     setLoadingLibrary(true);
@@ -209,12 +258,31 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                       id: d.id, 
                       ...data, 
                       isPersonal: true,
+                      authorName: data.authorName || user.displayName || 'Architect',
                       createdAt: parseDate(data.createdAt),
                       updatedAt: parseDate(data.updatedAt || data.createdAt)
                   } as Prompt;
               });
       }
-      setPrompts(masterRes.length > 0 ? [...personal, ...masterRes] : [...personal, ...FALLBACK_PROMPTS]);
+      // 1b. Cleanup "blueprint exemplar" artifacts
+      const filteredPersonal = personal.filter(p => !p?.title?.toLowerCase().startsWith('blueprint exemplar'));
+      const filteredMaster = masterRes.filter(p => !p?.title?.toLowerCase().startsWith('blueprint exemplar'));
+      
+      // Auto-delete leaked system-named blueprints from personal collection
+      if (user) {
+        personal.forEach(async (p) => {
+          if (p.title?.toLowerCase().startsWith('blueprint exemplar')) {
+             try {
+                await deleteDoc(doc(db, 'blueprints', p.id));
+                console.log(`Neural Cleanup: Purged artifact node ${p.id} (${p.title})`);
+             } catch (e) {
+                console.error(`Cleanup Fault: Failed to purge node ${p.id}`, e);
+             }
+          }
+        });
+      }
+
+      setPrompts(filteredMaster.length > 0 ? [...filteredPersonal, ...filteredMaster] : [...filteredPersonal, ...FALLBACK_PROMPTS]);
 
       // 2. Fetch Exemplars (PromptTool leagueEntries)
       try {
@@ -228,7 +296,8 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                 template: data.prompt,
                 prompts: [data.prompt],
                 thumbnailUrl: data.imageUrl,
-                description: `By ${data.authorName || 'Ecosystem Architect'}`,
+                description: data.description || '',
+                authorName: data.authorName || 'Ecosystem Architect',
                 isExemplar: true,
                 promptSetID: data.promptSetID || data.entryId || doc.id,
                 createdAt: parseDate(data.createdAt || data.timestamp),
@@ -327,7 +396,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
 
   const handleSelect = async (prompt: Prompt) => {
     setSelectedPrompt(prompt);
-    setOriginalThumbnail(prompt.thumbnailUrl || null);
     setGeneratedImages([]); // Clear variations on new blueprint selection
     setVariables({}); // Purge old variable inputs to hydrate from new blueprint
     const template = prompt.prompts?.[0] || prompt.template || '';
@@ -335,29 +403,45 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     extractVariables(template); // Force immediate extraction for UI hydration
     setIsEditingBlueprint(false);
     setActiveDetailTab('architect');
+    setLastCommittedPrompt(template);
+    setOriginalSnapshot({
+        url: prompt.thumbnailUrl || null,
+        title: prompt.title,
+        prompt: template
+    });
 
     // Cross-Ecosystem Variation Hydration
     const lineageID = prompt.promptSetID || prompt.id;
-    if (lineageID) {
+    if (lineageID && user) {
         try {
             const q = query(
-                collection(toolDb, 'generations'),
-                where('promptSetID', '==', lineageID),
-                orderBy('createdAt', 'desc')
+                collection(toolDb, 'users', user.uid, 'images'),
+                where('promptSetID', '==', lineageID)
             );
             const snaps = await getDocs(q);
             if (!snaps.empty) {
+                // Perform sort in client memory to bypass index requirements
                 const fetchedVariations = snaps.docs.map(doc => {
                     const data = doc.data();
+                    const createdAt = data.createdAt?.toMillis() || data.timestamp || 0; // handle various schemas
                     return {
-                        url: data.imageUrl,
-                        title: data.title || prompt.title, // fallback to blueprint title
-                        prompt: data.prompt
+                        id: doc.id,                          // Store Firestore doc ID for direct deletion
+                        url: data.imageUrl || data.url,      // Handle PromptTool schema nuances
+                        title: data.title || prompt.title,   // fallback to blueprint title
+                        prompt: data.prompt,
+                        uid: data.userId || data.uid,
+                        isOriginal: data.isOriginal || false,
+                        createdAt
                     };
-                }).filter(v => v.url); // filter out failures securely
+                }).filter(v => v.url)
+                  .sort((a, b) => b.createdAt - a.createdAt); // map and sort descending
 
                 // Set hydration array
                 setGeneratedImages(fetchedVariations);
+                setLoadedVariationsCount(fetchedVariations.length);
+            } else {
+                setGeneratedImages([]);
+                setLoadedVariationsCount(0);
             }
         } catch (err) {
             console.error("Hydrating PromptTool variations failed:", err);
@@ -368,9 +452,11 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
   const commitSelection = (url: string | null, title: string | undefined, newPrompt: string, vars?: Record<string, { value: string, default: string }>) => {
       setVariables(vars || {}); // Force inputs to reflect loaded defaults
       setRawTemplate(newPrompt);
+      extractVariables(newPrompt);
       if (url && selectedPrompt) {
           setSelectedPrompt(prev => prev ? { ...prev, thumbnailUrl: url, title: title || prev.title } : null);
       }
+      setLastCommittedPrompt(newPrompt);
       setActiveDetailTab('architect');
   };
 
@@ -381,9 +467,8 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
         return;
     }
 
-    const currentBlueprintOriginal = selectedPrompt?.prompts?.[0] || selectedPrompt?.template || '';
     const updatedRaw = getCleanPrompt();
-    const hasChanges = updatedRaw !== currentBlueprintOriginal && rawTemplate !== currentBlueprintOriginal;
+    const hasChanges = updatedRaw !== lastCommittedPrompt;
 
     if (hasChanges) {
         setConfirmModal({
@@ -395,8 +480,8 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             customButtons: [
                 {
                     label: 'Save & Continue',
-                    onClick: () => {
-                        saveBlueprint(false);
+                    onClick: async () => {
+                        await saveBlueprint(false);
                         commitSelection(url, title, newPrompt, vars);
                         setConfirmModal(null);
                     },
@@ -404,8 +489,8 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                 },
                 {
                     label: 'Save & Exit',
-                    onClick: () => {
-                        saveBlueprint(false);
+                    onClick: async () => {
+                        await saveBlueprint(false);
                         setSelectedPrompt(null);
                         setConfirmModal(null);
                     },
@@ -471,20 +556,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     });
   };
 
-  const resetProgress = () => {
-    setStatus(INITIAL_STEPS.map(s => ({ ...s, status: 'waiting' })));
-    setProgressMsg('');
-    setProgressCurrent(0);
-    setProgressTotal(1);
-    setElapsed(0);
-    setCompletion(null);
-    if (timerRef.current) clearInterval(timerRef.current);
-  };
-
-  const setStep = (id: string, status: StatusStep['status']) => {
-    setStatus(prev => prev.map(s => s.id === id ? { ...s, status } : s));
-  };
-
   const suggestTitle = (text: string) => {
     const regex = /(__DEF__.*?__DEF__|__VAL__.*?__VAL__)/g;
     const parts = text.split(regex);
@@ -512,11 +583,12 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     return title || (selectedPrompt?.title ? `${selectedPrompt.title} (Custom)` : 'New Architecture');
   };
 
-  const saveBlueprint = async (asNew: boolean = true) => {
-    if (!user || !selectedPrompt) return;
+  const saveBlueprint = async (asNew: boolean = true): Promise<string | null> => {
+    if (!user || !selectedPrompt) return null;
     if (!selectedPrompt.title?.trim()) {
         const suggestion = suggestTitle(resultantPrompt);
-        setConfirmModal({
+        return new Promise((resolve) => {
+          setConfirmModal({
             isOpen: true,
             title: 'Title Recommendation',
             message: `Your blueprint needs a name. Recommended: "${suggestion}". Would you like to use this?`,
@@ -524,16 +596,19 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                 const updated = { ...selectedPrompt, title: suggestion };
                 setSelectedPrompt(updated);
                 setConfirmModal(null);
-                setTimeout(() => doSave(asNew, updated), 10);
+                setTimeout(async () => {
+                    const clean = await doSave(asNew, updated);
+                    resolve(clean);
+                }, 10);
             }
+          });
         });
-        return;
     }
-    doSave(asNew, selectedPrompt);
+    return await doSave(asNew, selectedPrompt);
   };
 
-  const doSave = async (asNew: boolean, promptToSave: Prompt) => {
-    if (!user || !promptToSave) return;
+  const doSave = async (asNew: boolean, promptToSave: Prompt): Promise<string | null> => {
+    if (!user || !promptToSave) return null;
     
     // Explicitly commit current variable values as new defaults in the raw template UI
     const updatedRawTemplate = getCleanPrompt();
@@ -542,18 +617,23 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     setSaving(true);
     setSaveStatus('saving');
     try {
+        const isAdmin = profile?.role === 'admin' || profile?.role === 'su';
+        const forceAsNew = asNew || (!selectedPrompt?.isPersonal && !isAdmin);
+        const isActuallyNew = forceAsNew || !selectedPrompt?.id;
+
         const blueprintData = {
-            title: asNew && !promptToSave.title.includes('(Custom)') 
+            title: isActuallyNew && !promptToSave.title.includes('(Custom)') 
                 ? `${promptToSave.title} (Custom)` 
                 : promptToSave.title,
             description: promptToSave.description || '',
             prompts: [updatedRawTemplate],
             thumbnailUrl: promptToSave.thumbnailUrl || '',
+            promptSetID: promptToSave.promptSetID || promptToSave.id || null,
             uid: user.uid,
             updatedAt: serverTimestamp(),
         };
 
-        if (asNew || !selectedPrompt?.id) {
+        if (isActuallyNew) {
             const docRef = await addDoc(collection(db, 'blueprints'), {
                 ...blueprintData,
                 createdAt: serverTimestamp(),
@@ -565,22 +645,27 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                 createdAt: Date.now(),
                 updatedAt: Date.now()
             });
+            setLastCommittedPrompt(updatedRawTemplate);
         } else if (selectedPrompt?.isPersonal) {
             await setDoc(doc(db, 'blueprints', selectedPrompt.id), blueprintData, { merge: true });
             setSelectedPrompt(prev => prev ? { ...prev, ...blueprintData, updatedAt: Date.now() } : null);
-        } else if (profile?.role === 'admin' || profile?.role === 'su') {
+            setLastCommittedPrompt(updatedRawTemplate);
+        } else if (isAdmin) {
             await setDoc(doc(resourcesDb, 'resources', selectedPrompt.id), {
                 ...blueprintData,
                 updatedAt: serverTimestamp()
             }, { merge: true });
             setSelectedPrompt(prev => prev ? { ...prev, ...blueprintData, updatedAt: Date.now() } : null);
+            setLastCommittedPrompt(updatedRawTemplate);
         }
         await fetchPrompts();
         setSaveStatus('success');
         setTimeout(() => setSaveStatus('idle'), 2000);
+        return updatedRawTemplate;
     } catch (err: any) {
         setError("Failed to persist blueprint: " + err.message);
         setSaveStatus('error');
+        return null;
     } finally {
         setSaving(false);
     }
@@ -608,6 +693,26 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             try {
                 if (isPersonal) {
                     await deleteDoc(doc(db, 'blueprints', promptToDelete.id));
+                    // Synchronize Ecosystem: Purge all linked generation artifacts from 'My Gallery'
+                    try {
+                        const imagesRef = collection(toolDb, 'users', user.uid, 'images');
+                        
+                        // Strategy 1: Fast ID targeting
+                        const qById = query(imagesRef, where('promptSetID', '==', promptToDelete.id));
+                        const snapById = await getDocs(qById);
+                        
+                        // Strategy 2: URL matching (Legacy fallback for orphaned nodes)
+                        const qByUrl = query(imagesRef, where('imageUrl', '==', promptToDelete.thumbnailUrl));
+                        const snapByUrl = await getDocs(qByUrl);
+                        
+                        const allDocs = [...snapById.docs, ...snapByUrl.docs];
+                        const uniqueRefs = Array.from(new Set(allDocs.map(d => d.id))).map(id => allDocs.find(d => d.id === id)!.ref);
+                        
+                        await Promise.all(uniqueRefs.map(ref => deleteDoc(ref)));
+                        console.log(`Neural Purge: ${uniqueRefs.length} linked gallery nodes decommissioned.`);
+                    } catch (imgErr) {
+                        console.error("Ecosystem Sync Failure: Failed to purge linked gallery nodes:", imgErr);
+                    }
                 } else {
                     await deleteDoc(doc(resourcesDb, 'resources', promptToDelete.id));
                 }
@@ -642,6 +747,88 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     }
   };
 
+  const toggleSelectVariation = (url: string) => {
+    setSelectedVariations(prev => {
+        const next = new Set(prev);
+        if (next.has(url)) next.delete(url);
+        else next.add(url);
+        return next;
+    });
+  };
+
+  const selectAllVariations = () => {
+    if (selectedVariations.size === generatedImages.length) {
+        setSelectedVariations(new Set());
+    } else {
+        setSelectedVariations(new Set(generatedImages.map(img => img.url)));
+    }
+  };
+
+  const handleDeleteSelectedVariations = async (targetUrl?: string) => {
+    const targets = targetUrl ? new Set([targetUrl]) : selectedVariations;
+    if (!selectedPrompt || targets.size === 0) return;
+    
+    setConfirmModal({
+        isOpen: true,
+        isDanger: true,
+        title: 'Purge Protocol',
+        message: `Permanently decommission ${targets.size === 1 ? 'this architectural variation' : `${targets.size} architectural variations`} from the ecosystem history? Resulting node desync is irreversible.`,
+        onConfirm: async () => {
+             setSaving(true);
+             try {
+                if (!user) throw new Error('Authentication required');
+
+                // Build a map of url -> Variation so we can look up doc IDs
+                const variationsByUrl = new Map(generatedImages.map(img => [img.url, img]));
+
+                const deletePromises: Promise<void>[] = [];
+                for (const targetUrl of targets) {
+                    const variation = variationsByUrl.get(targetUrl);
+                    if (!variation) continue;
+
+                    if (variation.id) {
+                        // Fast path: we have the Firestore document ID
+                        const docRef = doc(toolDb, 'users', user.uid, 'images', variation.id);
+                        deletePromises.push(deleteDoc(docRef));
+                    } else {
+                        // Fallback: query by imageUrl in the correct subcollection
+                        const lineageID = selectedPrompt!.promptSetID || selectedPrompt!.id;
+                        const q = query(
+                            collection(toolDb, 'users', user.uid, 'images'),
+                            where('promptSetID', '==', lineageID),
+                            where('imageUrl', '==', targetUrl)
+                        );
+                        const snap = await getDocs(q);
+                        snap.docs.forEach(d => deletePromises.push(deleteDoc(d.ref)));
+                    }
+                }
+
+                if (deletePromises.length === 0) {
+                    throw new Error('No matching variation nodes found in ecosystem. The record may have already been purged.');
+                }
+
+                await Promise.all(deletePromises);
+
+                // Update local state
+                setGeneratedImages(prev => prev.filter(img => !targets.has(img.url)));
+                if (!targetUrl) setSelectedVariations(new Set());
+                else setSelectedVariations(prev => {
+                    const next = new Set(prev);
+                    next.delete(targetUrl);
+                    return next;
+                });
+
+                setConfirmModal(null);
+             } catch (err) {
+                console.error('Purge Failed:', err);
+                setError(`Lineage purge failed: ${(err as Error).message}`);
+             } finally {
+                setSaving(false);
+             }
+        }
+    });
+  };
+
   const handleBulkDelete = async () => {
     if (!user || selectedItems.size === 0) return;
     
@@ -664,6 +851,12 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             try {
                 for (const item of itemsToDelete) {
                     await deleteDoc(doc(db, 'blueprints', item.id));
+                    // Synchronize Ecosystem: Purge all linked generation artifacts for this node
+                    try {
+                        const q = query(collection(toolDb, 'users', user.uid, 'images'), where('promptSetID', '==', item.id));
+                        const snap = await getDocs(q);
+                        await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+                    } catch (e) {}
                 }
                 setSelectedItems(new Set());
                 await fetchPrompts();
@@ -675,6 +868,39 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             }
         }
     });
+  };
+
+  const alignEcosystem = async () => {
+    if (!user || loadingLibrary || saving) return;
+    setSaving(true);
+    try {
+        // Collect all valid IDs from the local and master neural clusters
+        const validIds = new Set([
+            ...prompts.map(p => p.id),
+            ...exemplars.map(p => p.id),
+            ...exemplars.map(p => p.promptSetID).filter(Boolean) as string[]
+        ]);
+
+        // Scan Gallery for orphaned records
+        const imagesSnap = await getDocs(collection(toolDb, 'users', user.uid, 'images'));
+        const orphans = imagesSnap.docs.filter(doc => {
+            const data = doc.data();
+            const setID = data.promptSetID;
+            if (!setID) return false; // Loose nodes stay preserved for safety
+            return !validIds.has(setID);
+        });
+
+        if (orphans.length === 0) {
+            setError("Ecosystem Aligned: No orphaned neural nodes detected in the gallery vault.");
+        } else {
+            await Promise.all(orphans.map(d => deleteDoc(d.ref)));
+            setError(`Alignment Success: Purged ${orphans.length} orphaned nodes from your gallery.`);
+        }
+    } catch (err: any) {
+        setError("Alignment Failed: " + err.message);
+    } finally {
+        setSaving(false);
+    }
   };
 
   const handleClone = async (p: Prompt, confirmedTitle?: string) => {
@@ -738,14 +964,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
         };
 
         const docRef = await addDoc(collection(db, 'blueprints'), blueprintData);
-        await fetchPrompts();
-        setSaveStatus('success');
-        
-        // Notify user about save location by switching view
-        setActiveTab('blueprints');
-
-        setTimeout(() => setSaveStatus('idle'), 2000);
-        
         handleSelect({
             id: docRef.id,
             ...blueprintData,
@@ -764,12 +982,19 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
 
   const handleSubmit = async () => {
     if (!user || !resultantPrompt) return;
-    const finalPrompt = getCleanPrompt();
     
-    // Explicitly commit current variable values as new defaults in the raw template UI
-    setRawTemplate(finalPrompt);
+    // Lineage Anchor Protocol: Ensure current variable values are committed as new defaults
+    const bakedTemplate = getCleanPrompt();
+    setRawTemplate(bakedTemplate);
+    
+    // Silent Save: Persist the architectural baseline to Firestore immediately
+    // This ensuring the 'raw' prompt used for this generation is stored as the new blueprint state
+    if (selectedPrompt && !selectedPrompt.isExemplar) {
+        doSave(false, { ...selectedPrompt, template: bakedTemplate });
+    }
 
-    // Derive active lineage ID
+    const finalPrompt = bakedTemplate;
+    
     let activePromptSetID = selectedPrompt?.promptSetID || selectedPrompt?.id;
     if (isNewImageSet) {
         activePromptSetID = crypto.randomUUID();
@@ -778,64 +1003,86 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             setSelectedPrompt({ ...selectedPrompt, promptSetID: activePromptSetID });
         }
     }
-    
-    resetProgress();
-    setGenerating(true);
+
+    setSaving(true);
     setError(null);
     startTimeRef.current = Date.now();
+    abortControllerRef.current = new AbortController();
+
     timerRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 1000);
 
     try {
-      setStep('auth', 'active');
-      const idToken = await user.getIdToken();
-      setStep('auth', 'done');
-      setStep('queue', 'active');
+        setGenerating(true);
+        setStatus(INITIAL_STEPS);
+        const idToken = await user.getIdToken();
+        const generationVariables = { ...variables };
 
-       await triggerGeneration(finalPrompt, user.uid, idToken, (event: GenerationProgress) => {
-        if (event.type === 'progress') {
-          setStep('queue', 'done');
-          setStep('generate', 'active');
-          setProgressMsg(event.message || 'Generating...');
-          setProgressCurrent(event.current || 0);
-          setProgressTotal(event.total || 1);
-        }
-        if (event.type === 'image_ready') {
-          setStep('generate', 'done');
-          setStep('upload', 'active');
-          const imageUrl = event.image?.imageUrl || null;
-          const imageTitle = event.image?.title || '<no title>';
-          const promptUsed = event.image?.prompt || finalPrompt;
-          if (imageUrl) {
-               setGeneratedImages(prev => [{ url: imageUrl, title: imageTitle, prompt: promptUsed }, ...prev]);
-          }
-          setTimeout(() => setStep('upload', 'done'), 600);
-        }
-        if (event.type === 'complete') {
-          setStep('upload', 'done');
-          setStep('complete', 'active');
-          const finalElapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
-          setCompletion({
-            creditsUsed: event.creditsUsed,
-            remainingBalance: event.remainingBalance,
-            imageUrl: event.image?.imageUrl || undefined,
-            title: event.image?.title || undefined,
-            elapsed: finalElapsed,
-          });
-          if (timerRef.current) clearInterval(timerRef.current);
-          setTimeout(() => { setStep('complete', 'done'); setGenerating(false); }, 500);
-        }
-        if (event.type === 'error') {
-          setError(event.error || 'Unknown error');
-          if (timerRef.current) clearInterval(timerRef.current);
-          setGenerating(false);
-        }
-      }, selectedPrompt?.title, activePromptSetID);
+        await triggerGeneration(
+          finalPrompt, 
+          user.uid, 
+          idToken, 
+          (event: GenerationProgress) => {
+             if (event.type === 'progress') {
+                const currentIdx = INITIAL_STEPS.findIndex(s => s.id === (event.message?.toLowerCase() || ''));
+                if (currentIdx !== -1) {
+                  setStatus(prev => prev.map((s, i) => ({
+                    ...s,
+                    status: i < currentIdx ? 'done' : i === currentIdx ? 'active' : 'waiting'
+                  })));
+                }
+                setProgressMsg(event.message || 'Processing Neural Request...');
+             }
+             if (event.type === 'image_ready') {
+                  const imageUrl = event.image?.url || event.image?.imageUrl; // Handle both legacy and unified property names
+                  const imageTitle = (event as any).title || selectedPrompt?.title || 'Generated Variation';
+                  const promptUsed = event.message || finalPrompt; 
+
+                  if (imageUrl) {
+                       setGeneratedImages(prev => [{ url: imageUrl, title: imageTitle, prompt: promptUsed, uid: user.uid, isOriginal: false }, ...prev]);
+                  }
+             }
+             if (event.type === 'complete') {
+                setStatus(prev => prev.map(s => ({ ...s, status: 'done' })));
+                setProgressMsg('Evolution Complete');
+                if (event.image?.url || event.image?.imageUrl) {
+                  setCompletion({
+                    imageUrl: event.image?.url || event.image?.imageUrl,
+                    elapsed: Math.floor((Date.now() - startTimeRef.current) / 1000)
+                  });
+                }
+                setTimeout(() => { setGenerating(false); }, 500);
+             }
+             if (event.type === 'error') {
+               if (event.error?.includes('abort')) {
+                 setError(null); // Silent cancel
+               } else {
+                 setError(event.error || 'Generation failed at the ecosystem core.');
+               }
+               setGenerating(false);
+               if (timerRef.current) clearInterval(timerRef.current);
+             }
+          },
+          selectedPrompt?.title || 'New Variation',
+          activePromptSetID,
+          generationVariables,
+          getCleanPrompt(),
+          abortControllerRef.current.signal
+        );
     } catch (err: any) {
       setError(err.message);
       if (timerRef.current) clearInterval(timerRef.current);
       setGenerating(false);
+    }
+  };
+
+  const handleCancelGeneration = () => {
+    if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        setGenerating(false);
+        if (timerRef.current) clearInterval(timerRef.current);
+        setProgressMsg('Operation Aborted');
     }
   };
 
@@ -856,6 +1103,43 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
         return 0;
     });
 
+  const handleViewVariation = async (image: any) => {
+    const psid = image.promptSetID;
+    if (!psid) {
+       setError("This variation is not linked to a blueprint lineage.");
+       return;
+    }
+
+    // 1. Find the blueprint/exemplar
+    let p = prompts.find(x => x.promptSetID === psid || x.id === psid);
+    let tab: 'blueprints' | 'exemplars' = 'blueprints';
+    
+    if (!p) {
+      p = exemplars.find(x => x.promptSetID === psid || x.id === psid);
+      tab = 'exemplars';
+    }
+
+    if (!p) {
+       setError("Associated blueprint node not found in the registry.");
+       return;
+    }
+
+    // 2. Switch tab and select
+    setActiveTab(tab);
+    await handleSelect(p);
+
+    // 3. Force variation selection
+    handleAssetSelection(image.imageUrl, image.title, image.prompt);
+  };
+
+  const handleViewInGallery = (image: any) => {
+    if (image?.promptSetID) {
+      setGallerySearchQuery(image.promptSetID);
+    }
+    setInitialGalleryAssetId(image?.id || image?.url || image?.imageUrl || null);
+    setActiveTab('gallery');
+  };
+
   return (
     <div className="w-full max-w-7xl mx-auto space-y-8">
 
@@ -874,95 +1158,157 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
          </div>
        )}
 
-       {!selectedPrompt ? (
-        <div className="space-y-8">
-          <div className="flex items-center justify-between border-b border-white/5 pb-4">
-            <div className="flex gap-8">
-              <button 
-                onClick={() => setActiveTab('blueprints')}
-                className={`flex items-center gap-2 pb-4 -mb-[17px] text-[10px] font-black uppercase tracking-[0.2em] transition-all border-b-2 ${activeTab === 'blueprints' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
-              >
-                <LayoutGrid className="w-4 h-4" />
-                Blueprint Library
-              </button>
-              <button 
-                onClick={() => setActiveTab('exemplars')}
-                className={`flex items-center gap-2 pb-4 -mb-[17px] text-[10px] font-black uppercase tracking-[0.2em] transition-all border-b-2 ${activeTab === 'exemplars' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
-              >
-                <History className="w-4 h-4" />
-                PromptTool Exemplars
-              </button>
-            </div>
-            <div className="flex items-center gap-3 px-3 py-1 bg-white/5 rounded-lg border border-white/10">
-               <div className="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
-               <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">
-                 Live Ecosystem Node: {activeTab === 'blueprints' ? 'Master Registry' : 'PromptTool Global'}
-               </span>
-            </div>
-          </div>
+        {!selectedPrompt ? (
+         <div className="space-y-6 animate-fade-in-up">
+           <div className="flex items-center justify-between border-b border-white/5 pb-6 pt-2">
+             <div className="flex gap-10">
+               <button 
+                 onClick={() => setActiveTab('blueprints')}
+                 className={`flex items-center gap-2.5 pb-6 -mb-[25px] text-[10px] font-black uppercase tracking-[0.25em] transition-all border-b-4 ${activeTab === 'blueprints' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
+               >
+                 <LayoutGrid className="w-4 h-4" />
+                 Blueprint Library
+               </button>
+               <button 
+                 onClick={() => setActiveTab('exemplars')}
+                 className={`flex items-center gap-2.5 pb-6 -mb-[25px] text-[10px] font-black uppercase tracking-[0.25em] transition-all border-b-4 ${activeTab === 'exemplars' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
+               >
+                 <History className="w-4 h-4" />
+                 Ecosystem Exemplars
+               </button>
+               <button 
+                 onClick={() => { setGallerySearchQuery(''); setInitialGalleryAssetId(null); setActiveTab('gallery'); }}
+                 className={`flex items-center gap-2.5 pb-6 -mb-[25px] text-[10px] font-black uppercase tracking-[0.25em] transition-all border-b-4 ${activeTab === 'gallery' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
+               >
+                 <GalleryVertical className="w-4 h-4" />
+                 My Gallery
+               </button>
+             </div>
+             <div className="flex items-center gap-3 px-4 py-2 bg-white/[0.02] rounded-xl border border-white/5 backdrop-blur-xl">
+                <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_var(--primary)]"></div>
+                <span className="text-[9px] font-black text-white/40 uppercase tracking-[0.15em] whitespace-nowrap">
+                  Node: <span className="text-gray-400">{activeTab === 'blueprints' ? 'Master Registry' : activeTab === 'exemplars' ? 'Global Cluster' : 'PromptTool Gallery'}</span>
+                </span>
+             </div>
+           </div>
 
-          {/* Explorer Navigation */}
-          <div className="flex items-center justify-between py-2 border-b border-white/5 pb-6">
-            <div className="flex items-center gap-4 flex-1">
-                <Search className="w-4 h-4 text-gray-400" />
-                <input
-                    type="text"
-                    placeholder="Search registry..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-transparent text-sm text-white placeholder:text-gray-500 outline-none w-full md:w-64"
-                />
+           {/* ── Gallery Tab View ──────────────────────────────── */}
+           {activeTab === 'gallery' && (
+             <div className="pt-4">
+               <PromptToolGallery 
+                 onViewVariation={handleViewVariation} 
+                 initialSearch={gallerySearchQuery}
+                 initialAssetId={initialGalleryAssetId}
+               />
+             </div>
+           )}
+
+          {activeTab !== 'gallery' && (
+            <div className="space-y-0">
+              <div className="flex items-center justify-between py-6 border-b border-white/5 pb-10">
+            <div className="flex items-center gap-6 flex-1">
+                <div className="relative group/search flex-1 max-w-md">
+                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within/search:text-primary transition-colors" />
+                    <input
+                        type="text"
+                        placeholder="Search Neural Registry..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="bg-white/[0.03] border border-white/10 rounded-2xl pl-14 pr-6 py-4 text-sm text-white placeholder:text-gray-600 outline-none w-full focus:border-primary/50 focus:bg-white/[0.07] transition-all shadow-inner"
+                    />
+                </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
                 <select
                     value={sortMode}
                     onChange={(e) => setSortMode(e.target.value as any)}
+                    className="bg-white/[0.03] text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 border border-white/10 rounded-2xl px-6 py-4 outline-none cursor-pointer hover:border-primary/50 transition-all shadow-inner appearance-none min-w-[180px]"
                 >
-                    <option value="newest">Newest First</option>
-                    <option value="updated">Recently Updated</option>
-                    <option value="oldest">Oldest First</option>
-                    <option value="az">A-Z</option>
-                    <option value="za">Z-A</option>
+                    <option value="newest">Recently Generated</option>
+                    <option value="updated">Network Updated</option>
+                    <option value="oldest">Legacy Oldest</option>
+                    <option value="az">Index A-Z</option>
+                    <option value="za">Index Z-A</option>
                 </select>
-                <div className="flex items-center bg-white/5 border border-white/10 rounded-xl p-1 gap-1">
+                <div className="flex items-center bg-white/[0.02] border border-white/10 rounded-2xl p-1.5 gap-1.5 shadow-2xl backdrop-blur-3xl">
+                    <button
+                      onClick={alignEcosystem}
+                      disabled={saving || loadingLibrary}
+                      className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.22em] text-accent hover:bg-accent/10 transition-all flex items-center gap-3 border-r border-white/10 mr-1 group/resync ${saving ? 'animate-pulse' : ''}`}
+                      title="Purge Orphaned Gallery Nodes (Desync Alignment)"
+                    >
+                      <Zap className={`w-3.5 h-3.5 ${saving ? 'animate-spin' : 'group-hover/resync:rotate-12 transition-transform'}`} />
+                      {saving ? 'Aligning...' : 'Resync Now'}
+                    </button>
+                    {activeTab === 'exemplars' && (
+                        <button
+                          onClick={() => fetchPrompts()}
+                          disabled={loadingLibrary}
+                          className="px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.22em] text-primary hover:bg-primary/10 transition-all flex items-center gap-3 border-r border-white/10 mr-1 group/sync"
+                          title="Retrieve Latest from PromptTool"
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 ${loadingLibrary ? 'animate-spin' : 'group-hover/sync:rotate-180 transition-transform duration-700'}`} />
+                          {loadingLibrary ? 'Syncing...' : 'Sync Latest'}
+                        </button>
+                    )}
                     {selectedItems.size > 0 && (
-                        <div className="flex items-center gap-4 px-4 border-r border-white/10 mr-2">
-                           <span className="text-[10px] font-black text-primary uppercase tracking-widest">{selectedItems.size} Selected</span>
+                        <div className="flex items-center gap-6 px-5 border-r border-white/10 mr-1 animate-fade-in-right">
+                           <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">{selectedItems.size} Selected</span>
                            <button 
                              onClick={handleBulkDelete}
                              disabled={saving}
-                             className={`text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2 ${saving ? 'text-gray-500 cursor-not-allowed' : 'text-red-400 hover:text-red-500'}`}
+                             className={`text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center gap-2 px-3 py-1.5 rounded-lg ${saving ? 'bg-gray-500/10 text-gray-500 cursor-not-allowed' : 'bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white'}`}
                            >
-                             {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                             {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
                              {saving ? 'Purging...' : 'Purge'}
                            </button>
                         </div>
                     )}
                     <button 
                         onClick={selectAll}
-                        className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-[0.2em] transition-all ${selectedItems.size === filteredList.length && filteredList.length > 0 ? 'bg-primary text-white' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                        className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.22em] transition-all ${selectedItems.size === filteredList.length && filteredList.length > 0 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white hover:bg-white/10'}`}
                     >
                         {selectedItems.size === filteredList.length && filteredList.length > 0 ? 'Deselect All' : 'Select All'}
                     </button>
-                    <div className="w-px h-4 bg-white/10 mx-1"></div>
-                    <button 
-                        onClick={() => setViewMode('grid')}
-                        className={`p-1.5 transition-colors rounded-lg ${viewMode === 'grid' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white'}`}
-                    >
-                        <LayoutGrid className="w-3.5 h-3.5" />
-                    </button>
-                    <button 
-                        onClick={() => setViewMode('list')}
-                        className={`p-1.5 transition-colors rounded-lg ${viewMode === 'list' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white'}`}
-                    >
-                        <List className="w-3.5 h-3.5" />
-                    </button>
-                    <button 
-                        onClick={() => setViewMode('extended')}
-                        className={`p-1.5 transition-colors rounded-lg ${viewMode === 'extended' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white'}`}
-                    >
-                        <Maximize2 className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="w-px h-5 bg-white/10 mx-1"></div>
+                    <div className="flex items-center gap-1">
+                        <button 
+                            onClick={() => setViewMode('grid-2')} 
+                            className={`px-3 py-2.5 rounded-xl text-[9px] font-black transition-all duration-500 ${viewMode === 'grid-2' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
+                            title="Detail Grid"
+                        >
+                            2C
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('grid-3')} 
+                            className={`px-3 py-2.5 rounded-xl text-[9px] font-black transition-all duration-500 ${viewMode === 'grid-3' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
+                            title="Balanced Grid"
+                        >
+                            3C
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('grid-4')} 
+                            className={`px-3 py-2.5 rounded-xl text-[9px] font-black transition-all duration-500 ${viewMode === 'grid-4' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
+                            title="Density Grid"
+                        >
+                            4C
+                        </button>
+                        <div className="w-[1px] h-5 bg-white/10 mx-1 self-center" />
+                        <button 
+                            onClick={() => setViewMode('list')} 
+                            className={`p-2.5 rounded-xl transition-all duration-500 ${viewMode === 'list' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
+                            title="List Registry"
+                        >
+                            <List className="w-4 h-4" />
+                        </button>
+                        <button 
+                            onClick={() => setViewMode('extended')} 
+                            className={`p-2.5 rounded-xl transition-all duration-500 ${viewMode === 'extended' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
+                            title="Architectural Expansion"
+                        >
+                            <Maximize2 className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
             </div>
           </div>
@@ -985,101 +1331,109 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                 </div>
               </div>
             ) : (
-              <div className={viewMode === 'grid' ? "grid grid-cols-1 md:grid-cols-2 gap-8" : "flex flex-col gap-6"}>
+              <div className={
+                viewMode === 'grid-2' ? "grid grid-cols-1 md:grid-cols-2 gap-10" : 
+                viewMode === 'grid-3' ? "grid grid-cols-1 md:grid-cols-3 gap-8" : 
+                viewMode === 'grid-4' ? "grid grid-cols-2 md:grid-cols-4 gap-6" : 
+                "flex flex-col gap-6"
+              }>
                 {filteredList.map((p, i) => (
                   <div 
                     key={p.id} 
                     onClick={() => handleSelect(p)} 
-                    className={`relative group cursor-pointer flex flex-col h-full animate-fade-in-up opacity-0 ${viewMode === 'list' ? '' : 'h-full'}`}
+                    className={`relative group cursor-pointer flex flex-col h-full animate-fade-in-up opacity-0 ${viewMode.startsWith('grid') ? 'h-full' : ''}`}
                     style={{ animationDelay: `${i * 100}ms` }}
                   >
                     {/* Outer Glow Bloom */}
-                    <div className="absolute -inset-1 bg-gradient-to-r from-primary/40 to-accent/40 rounded-[2.5rem] blur-xl opacity-0 group-hover:opacity-60 transition-all duration-700 pointer-events-none"></div>
+                    <div className="absolute -inset-1 bg-gradient-to-r from-primary/30 to-accent/30 rounded-[3rem] blur-2xl opacity-0 group-hover:opacity-40 transition-all duration-700 pointer-events-none"></div>
                     
-                    <div className="relative glass-panel p-8 bg-white/5 hover:bg-[#12121a]/80 backdrop-blur-2xl transition-all duration-500 transform group-hover:scale-[1.03] group-hover:-translate-y-2 border-white/5 group-hover:border-primary/40 flex-1 flex flex-col justify-between shadow-2xl group-hover:shadow-primary/20">
+                    <div className="relative glass-panel p-8 bg-white/[0.02] hover:bg-white/[0.04] backdrop-blur-3xl transition-all duration-700 border-white/10 group-hover:border-primary/50 flex-1 flex flex-col justify-between shadow-2xl group-hover:shadow-primary/20 overflow-hidden">
                       
                       {/* Selection Checkbox */}
                       <div 
                         onClick={(e) => { e.stopPropagation(); toggleSelectItem(p.id); }}
-                        className={`absolute top-6 left-6 w-6 h-6 rounded-lg border-2 z-30 flex items-center justify-center transition-all cursor-pointer ${selectedItems.has(p.id) ? 'bg-primary border-primary shadow-lg shadow-primary/20' : 'border-white/10 bg-black/20 opacity-0 group-hover:opacity-100'}`}
+                        className={`absolute top-6 left-6 w-7 h-7 rounded-xl border-2 z-30 flex items-center justify-center transition-all cursor-pointer ${selectedItems.has(p.id) ? 'bg-primary border-primary shadow-lg shadow-primary/20' : 'border-white/10 bg-black/20 opacity-0 group-hover:opacity-100 hover:border-white/30'}`}
                       >
                          {selectedItems.has(p.id) && <Check className="w-4 h-4 text-white" />}
                       </div>
-                      {p.isPersonal && (
-                        <div className="absolute -top-3 -right-3 px-4 py-1.5 bg-brand-gradient text-[9px] font-black uppercase tracking-[0.2em] rounded-full z-10 shadow-[0_0_20px_rgba(99,102,241,0.4)] ring-1 ring-white/20">
-                          Personal Record
-                        </div>
-                      )}
-                      {p.isExemplar && (
-                        <div className="absolute -top-3 -right-3 px-4 py-1.5 bg-primary/20 backdrop-blur-md text-[9px] font-black uppercase tracking-[0.2em] rounded-full z-10 shadow-lg border border-primary/40 text-primary">
-                          Exemplar Alpha
-                        </div>
-                      )}
 
-                      {/* Contextual Actions */}
-                      <div className="absolute bottom-20 right-6 flex flex-col gap-3 z-20">
-                          {p.isExemplar && (
-                            <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleClone(p);
-                                }}
-                                className="p-3 bg-primary/10 hover:bg-primary text-primary hover:text-white rounded-xl border border-primary/20 transition-all opacity-0 group-hover:opacity-100 shadow-xl"
-                                title="Clone to My Library"
-                            >
-                                <Copy className="w-4 h-4" />
-                            </button>
-                          )}
-                          {(p.isPersonal || profile?.role === 'admin' || profile?.role === 'su') && (
-                            <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleDelete(p);
-                                }}
-                                className="p-3 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl border border-red-500/20 transition-all opacity-0 group-hover:opacity-100 shadow-xl"
-                                title="Purge Record"
-                            >
-                                <Trash2 className="w-4 h-4" />
-                            </button>
-                          )}
+                      {/* Header Badge */}
+                      <div className="absolute top-6 right-6 z-30 flex items-center gap-2 pointer-events-none">
+                        {p.isPersonal && (
+                          <div className="px-3 py-1 bg-white/5 backdrop-blur-md text-[8px] font-black uppercase tracking-[0.2em] rounded-full shadow-lg border border-white/10 text-white/60">
+                            Local Node
+                          </div>
+                        )}
+                        {p.isExemplar && (
+                          <div className="px-3 py-1 bg-primary/20 backdrop-blur-md text-[8px] font-black uppercase tracking-[0.2em] rounded-full shadow-lg border border-primary/40 text-primary animate-pulse">
+                            Alpha Exemplar
+                          </div>
+                        )}
                       </div>
+
+                      {/* Primary Action (Full Reveal Backdrop) */}
+                      <div className="absolute inset-0 bg-black/95 backdrop-blur-xl opacity-0 group-hover:opacity-100 transition-all duration-700 z-40 flex flex-col items-center justify-center pointer-events-none"></div>
                       
-                      <div className={`flex items-start ${viewMode === 'extended' ? 'flex-col gap-6' : 'gap-8'}`}>
-                        <div className={`relative shrink-0 overflow-hidden border border-white/10 group-hover:border-primary/50 transition-colors shadow-2xl ${viewMode === 'extended' ? 'w-full h-48 rounded-[2rem]' : 'w-28 h-28 rounded-[2rem]'}`}>
+                      <div className="flex flex-col gap-8 transition-opacity duration-300 relative z-50">
+                        <div className={`relative shrink-0 overflow-hidden border border-white/5 rounded-3xl bg-black/20 group-hover:border-primary/20 transition-colors shadow-inner flex items-center justify-center p-8 ${viewMode.startsWith('grid') ? 'w-full aspect-square' : 'w-64 h-64'}`}>
                           <img 
                             src={p.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${p.id}`} 
-                            className="w-full h-full object-cover transform group-hover:scale-110 transition-transform duration-700" 
+                            className="w-full h-full object-contain transform group-hover:scale-110 transition-transform duration-1000 grayscale-[40%] group-hover:grayscale-0 filter drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]" 
                             alt="" 
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
                         </div>
-                        <div className="flex-1 min-w-0 w-full">
-                           <div className="mb-2">
-                              <p className="text-[8px] font-black text-primary uppercase tracking-[0.2em] mb-0.5">Neural Identity</p>
-                              <h3 className={`font-black uppercase truncate transition-colors leading-tight ${!p.title ? "text-gray-500 italic text-sm" : "text-white group-hover:text-primary text-sm"}`}>
+                        <div className="flex-1 min-w-0 w-full space-y-3 relative z-50 pointer-events-none">
+                           <div>
+                              <p className="text-[8px] font-black text-white/30 uppercase tracking-[0.2em] mb-1 relative z-50">
+                                By {p.authorName || (p.isPersonal ? profile?.displayName : 'Ecosystem Architect') || 'Architect'}
+                              </p>
+                              <h3 className={`font-black uppercase truncate transition-colors leading-tight tracking-tight ${!p.title ? "text-gray-500 italic text-xl" : "text-white group-hover:text-primary text-xl"}`}>
                                 {p.title || '<no title>'}
                               </h3>
-                           </div>
-                          <p className={`text-xs text-gray-400 mt-2 font-medium ${viewMode === 'extended' ? 'leading-relaxed' : 'leading-relaxed line-clamp-2'}`}>{p.description}</p>
-                          
-                          {viewMode === 'extended' && p.template && (
-                             <div className="mt-4 p-4 bg-black/40 rounded-xl border border-white/5 relative group-hover:border-primary/20 transition-all">
-                                <p className="text-xs text-gray-500 font-mono italic leading-relaxed break-words">{p.template}</p>
-                             </div>
-                          )}
-                        </div>
-                      </div>
+                              
+                              {/* Interaction Nodes below Identity stack */}
+                              <div className="flex flex-col items-center gap-3 mt-8 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-y-4 group-hover:translate-y-0 pointer-events-auto">
+                                 {p.isExemplar && (
+                                    <button 
+                                      onClick={(e) => { e.stopPropagation(); handleClone(p); }}
+                                      className="w-full py-4 bg-white text-black rounded-xl text-[11px] font-black uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-3 hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.2)]"
+                                    >
+                                       <Copy className="w-4 h-4" /> Clone to Library
+                                    </button>
+                                 )}
+                                 
+                                 <div className="flex items-center gap-2 w-full">
+                                    <div 
+                                      onClick={(e) => { e.stopPropagation(); handleSelect(p); }}
+                                      className="flex-1 py-3.5 bg-white/5 hover:bg-white/10 text-white/40 hover:text-white border border-white/10 hover:border-white/20 rounded-xl text-[8px] font-black uppercase tracking-[0.2em] transition-all text-center cursor-pointer active:scale-95"
+                                    >
+                                       Open Architecture
+                                    </div>
 
-                      <div className="mt-8 flex items-center justify-between border-t border-white/5 pt-6">
-                        <div className="flex items-center gap-3">
-                           <div className="w-6 h-6 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
-                              <Database className="w-3 h-3 text-gray-500" />
+                                    {(p.isPersonal || profile?.role === 'admin' || profile?.role === 'su') && (
+                                       <button 
+                                         onClick={(e) => { e.stopPropagation(); handleDelete(p); }}
+                                         className="w-14 h-14 flex items-center justify-center bg-black/95 hover:bg-red-500/20 text-white/90 hover:text-red-500 border-2 border-white/40 hover:border-red-500 transition-all active:scale-95 shadow-[0_0_30px_rgba(255,0,0,0.1)] backdrop-blur-2xl rounded-2xl"
+                                         title="Purge Protocol"
+                                       >
+                                          <Trash2 className="w-5 h-5" />
+                                       </button>
+                                    )}
+                                 </div>
+                              </div>
                            </div>
-                           <span className="text-[10px] font-black text-gray-600 uppercase tracking-widest">{p.isExemplar ? 'Global Resource' : 'Architectural DNA'}</span>
+                          <div className="group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
+                            <p className={`text-[11px] text-gray-500 font-medium leading-relaxed ${viewMode === 'extended' ? '' : 'line-clamp-2'}`}>{p.description || 'No detailed architecture specification provided.'}</p>
+                            
+                            {viewMode === 'extended' && p.template && (
+                               <div className="mt-6 p-5 bg-black/60 rounded-2xl border border-white/5 relative group-hover:border-primary/20 transition-all overflow-hidden">
+                                  <div className="absolute top-0 right-0 px-3 py-1 bg-white/5 text-[7px] font-black uppercase tracking-widest text-white/30 border-l border-b border-white/5 rounded-bl-lg">Blueprint ID</div>
+                                  <p className="text-[10px] text-gray-400 font-mono italic leading-relaxed break-words">{p.template}</p>
+                               </div>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-[10px] uppercase font-black tracking-[0.3em] text-primary translate-x-4 opacity-0 group-hover:translate-x-0 group-hover:opacity-100 transition-all duration-500 flex items-center gap-3">
-                          Initialize <RefreshCw className="w-4 h-4" />
-                        </span>
                       </div>
                     </div>
                   </div>
@@ -1087,42 +1441,101 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
               </div>
             )}
           </section>
+            </div>
+          )}
         </div>
       ) : (
         <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start animate-fade-in-up opacity-0">
           <div className="space-y-6">
             <div className="flex items-center justify-between">
                <button 
-                onClick={() => {
-                  setSelectedPrompt(null);
-                  setActiveTab('blueprints');
-                }} 
-                className="text-sm font-bold text-gray-500 hover:text-white flex items-center gap-2 transition-colors px-4 py-2 bg-white/5 hover:bg-white/10 rounded-xl w-fit"
-               >
-                <X className="w-4 h-4" /> BACK TO LIBRARY
-               </button>
+                     onClick={async (e) => {
+                       e.stopPropagation();
+                       const cleaned = getCleanPrompt();
+                       const hasTemplateChanges = cleaned !== lastCommittedPrompt;
+                       const hasNewGenerations = generatedImages.length > loadedVariationsCount; 
+                       
+                       if (hasTemplateChanges || hasNewGenerations) {
+                         setConfirmModal({
+                           isOpen: true,
+                           title: 'Unsaved Architectural State',
+                           message: hasTemplateChanges 
+                             ? 'Your vision overrides haven\'t been registered. Do you want to back out and discard these neural adjustments?'
+                             : 'You generated new siblings that haven\'t been committed to the Registry. Back out and discard these nodes?',
+                           isDanger: true,
+                           customButtons: [
+                               {
+                                   label: 'Cancel',
+                                   onClick: () => {
+                                       setConfirmModal(null);
+                                   },
+                                   className: "col-span-1 py-3 px-6 rounded-xl border border-white/10 text-xs font-black uppercase tracking-widest text-gray-400 hover:bg-white/5 transition-all"
+                               },
+                               {
+                                   label: 'Discard & Exit',
+                                   onClick: () => {
+                                       setSelectedPrompt(null);
+                                       setActiveTab('blueprints');
+                                       setConfirmModal(null);
+                                   },
+                                   className: "col-span-1 py-3 px-6 rounded-xl border border-red-500/30 text-xs font-black uppercase tracking-widest text-red-500 hover:bg-red-500/10 transition-all"
+                               },
+                               {
+                                   label: 'Save & Exit',
+                                   onClick: async () => {
+                                       await saveBlueprint(false);
+                                       setSelectedPrompt(null);
+                                       setActiveTab('blueprints');
+                                       setConfirmModal(null);
+                                   },
+                                   className: "col-span-2 py-4 px-6 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all shadow-lg bg-primary/80 hover:bg-primary shadow-primary/20"
+                               }
+                           ]
+                         });
+                       } else {
+                         setSelectedPrompt(null);
+                         setActiveTab('blueprints');
+                       }
+                     }} 
+                     className="text-[9px] font-black text-gray-500 hover:text-white flex items-center gap-2 transition-all px-4 py-2 bg-white/5 border border-white/10 hover:border-white/20 rounded-xl w-fit uppercase tracking-widest group"
+                   >
+                     <X className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform" /> Back
+                   </button>
                
-               <div className="flex bg-white/5 p-1 rounded-[1.2rem] border border-white/10 shadow-inner backdrop-blur-xl">
+               <div className="flex bg-white/[0.02] p-1 rounded-2xl border border-white/5 shadow-xl backdrop-blur-2xl overflow-hidden">
                   <button 
                     onClick={() => setActiveDetailTab('architect')}
-                    className={`flex items-center gap-2.5 px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] transition-all duration-500 ${activeDetailTab === 'architect' ? 'bg-primary text-white shadow-[0_10px_20px_-10px_rgba(99,102,241,0.6)] border border-primary/20' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                    className={`flex items-center gap-2.5 px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] transition-all duration-500 ${activeDetailTab === 'architect' ? 'bg-primary text-white shadow-lg shadow-primary/20 border border-white/10' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
                   >
                      <Plus className={`w-3.5 h-3.5 ${activeDetailTab === 'architect' ? 'rotate-45' : ''} transition-transform duration-500`} /> 
                      Architect
                   </button>
                   <button 
                     onClick={() => setActiveDetailTab('media')}
-                    className={`flex items-center gap-2.5 px-6 py-2.5 rounded-2xl text-[10px] font-black uppercase tracking-[0.1em] transition-all duration-500 ${activeDetailTab === 'media' ? 'bg-primary text-white shadow-[0_10px_20px_-10px_rgba(99,102,241,0.6)] border border-primary/20' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
+                    className={`flex items-center gap-2.5 px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] transition-all duration-500 ${activeDetailTab === 'media' ? 'bg-primary text-white shadow-lg shadow-primary/20 border border-white/10' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
                   >
                      <GalleryVertical className="w-3.5 h-3.5" /> 
-                     Media
+                     Media Vault
                   </button>
+                  {selectedPrompt?.promptSetID && (
+                    <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
+                  )}
+                  {selectedPrompt?.promptSetID && (
+                    <button
+                       onClick={() => handleViewInGallery({ promptSetID: selectedPrompt?.promptSetID, url: previewImageUrl })}
+                       className="flex items-center gap-2 px-6 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-gray-500 hover:text-white hover:bg-white/5 transition-all rounded-xl"
+                       title="Search in Gallery"
+                    >
+                      <GalleryVertical className="w-3.5 h-3.5" />
+                      Gallery
+                    </button>
+                  )}
                </div>
             </div>
 
             <div className="relative group">
-               <div className="absolute -inset-0.5 bg-gradient-to-br from-primary/30 to-accent/30 rounded-3xl blur opacity-25"></div>
-               <div className="relative glass-panel p-8 space-y-8 bg-[#181825]/90 border-white/10 shadow-2xl">
+               <div className="absolute -inset-1 bg-gradient-to-br from-primary/20 to-accent/20 rounded-[2rem] blur-xl opacity-30 group-hover:opacity-50 transition-all duration-700 pointer-events-none"></div>
+               <div className="relative glass-panel p-6 space-y-6 bg-background-secondary/95 border-white/5 shadow-2xl backdrop-blur-3xl">
                  <div className="flex flex-col gap-6 border-b border-white/5 pb-6">
                    <div className="flex flex-col gap-2">
                      <div className="relative group/title w-full">
@@ -1210,9 +1623,9 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                       <div className="space-y-6">
                         {Object.keys(variables).map((v) => (
                           <div key={v} className="space-y-2">
-                             <div className="flex justify-between items-center px-1">
-                                 <label className="text-[10px] font-black tracking-widest text-primary uppercase ml-1">{v}</label>
-                                 <div className="flex gap-4">
+                             <div className="flex flex-col gap-2 px-1">
+                                 <label className="text-[10px] font-black tracking-widest text-primary uppercase ml-1 opacity-60">{v}</label>
+                                 <div className="flex items-center gap-4">
                                      {variables[v].value && variables[v].value !== variables[v].default && (
                                          <button onClick={() => setAsDefault(v)} className="text-[9px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest">[ Set as Default ]</button>
                                      )}
@@ -1236,107 +1649,27 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                       </div>
 
                       {/* Sibling Variations Registry */}
-                      <div className="space-y-4">
-                        <div className="flex items-center justify-between border-b border-white/5 pb-2">
-                          <div className="flex items-center gap-4">
-                            <button
-                              onClick={() => setIsVariationsCollapsed(!isVariationsCollapsed)}
-                              className="flex items-center gap-2 hover:opacity-70 transition-opacity outline-none"
-                            >
-                              <ChevronDown className={`w-4 h-4 text-primary transition-transform duration-300 ${isVariationsCollapsed ? '-rotate-90' : ''}`} />
-                              <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2 m-0 p-0">
-                                <Layers className="w-3.5 h-3.5 text-primary" /> Registry Variations
-                              </h4>
-                            </button>
-                          </div>
-                          <div className="flex items-center gap-4">
-                            <div className="flex items-center gap-1 bg-black/40 p-1 rounded-xl border border-white/5">
-                              <button onClick={() => setVariationsViewMode('grid')} className={`p-1.5 rounded-lg transition-colors ${variationsViewMode === 'grid' ? 'bg-primary/20 text-primary' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-                                <Grid className="w-3.5 h-3.5" />
-                              </button>
-                              <button onClick={() => setVariationsViewMode('list')} className={`p-1.5 rounded-lg transition-colors ${variationsViewMode === 'list' ? 'bg-primary/20 text-primary' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-                                <List className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                            <span className="text-[9px] font-bold text-gray-700 uppercase">{generatedImages.length + 1} Assets Linked</span>
-                          </div>
-                        </div>
-
-                        {!isVariationsCollapsed && (
-                          <div className={`pt-4 ${variationsViewMode === 'grid' ? 'grid grid-cols-2 lg:grid-cols-3 gap-6' : 'flex flex-col gap-4'}`}>
-                            {/* Original Node */}
-                            <div className={`flex ${variationsViewMode === 'grid' ? 'flex-col items-center space-y-3' : 'flex-row items-center gap-6 p-4 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/10 transition-colors'}`}>
-                              <div
-                                className={`group/thumb relative rounded-[2rem] overflow-hidden border border-white/10 hover:border-primary/50 transition-all cursor-zoom-in shadow-xl bg-black/40 shrink-0 ${variationsViewMode === 'grid' ? 'w-full aspect-square' : 'w-24 h-24'}`}
-                                onClick={() => handleAssetSelection(originalThumbnail || selectedPrompt.thumbnailUrl || null, selectedPrompt.title, selectedPrompt.template || selectedPrompt.prompts?.[0])}
-                              >
-                                <img src={originalThumbnail || selectedPrompt.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${selectedPrompt.id}`} className="w-full h-full object-cover group-hover/thumb:scale-110 transition-transform duration-700" alt="" />
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 backdrop-blur-[1px] pointer-events-none group-hover/thumb:pointer-events-auto z-30">
-                                  <button
-                                    className={`py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-[2px] border border-white/20 rounded-xl text-[10px] font-black text-white uppercase tracking-[0.2em] transition-all duration-500 shadow-xl hover:scale-105 active:scale-95 ${variationsViewMode === 'grid' ? 'w-32' : 'w-12 h-8 text-[8px] px-2'}`}
-                                    onClick={(e) => { e.stopPropagation(); setPreviewImageUrl(originalThumbnail || selectedPrompt.thumbnailUrl || null); setPreviewTitle(selectedPrompt.title || '<no title>'); setPreviewPrompt(selectedPrompt.template || selectedPrompt.prompts?.[0] || null); }}
-                                  >
-                                    {variationsViewMode === 'grid' ? 'View Vision' : <Maximize2 className="w-3 h-3 mx-auto" />}
-                                  </button>
-                                  <button
-                                    className={`py-2.5 bg-primary/80 hover:bg-primary border border-primary/20 rounded-xl text-[10px] font-black text-white uppercase tracking-[0.2em] transition-all duration-500 shadow-xl flex items-center justify-center gap-2 hover:scale-105 active:scale-95 ${variationsViewMode === 'grid' ? 'w-32' : 'w-12 h-8 text-[8px] px-2'}`}
-                                    onClick={(e) => { e.stopPropagation(); handleAssetSelection(originalThumbnail || selectedPrompt.thumbnailUrl || null, selectedPrompt.title, selectedPrompt.template || selectedPrompt.prompts?.[0]); }}
-                                  >
-                                    <Check className="w-3 h-3" />{variationsViewMode === 'grid' ? ' Select' : ''}
-                                  </button>
-                                </div>
-                                <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 to-transparent z-20 pointer-events-none">
-                                  <span className={`text-white/40 font-bold uppercase truncate text-center tracking-widest block ${variationsViewMode === 'grid' ? 'text-[8px]' : 'hidden'}`}>{selectedPrompt.title || '<no title>'}</span>
-                                </div>
-                              </div>
-                              <div className={variationsViewMode === 'list' ? 'flex-1 min-w-0 flex flex-col items-start' : ''}>
-                                {variationsViewMode === 'list' && <p className="text-[12px] font-black text-white truncate max-w-sm mb-2">{selectedPrompt.title || '<no title>'}</p>}
-                                <span className="text-[14px] font-black text-primary uppercase tracking-[0.3em] bg-primary/5 px-4 py-1.5 rounded-full border border-primary/20 shadow-lg shadow-primary/5 italic inline-block">Original</span>
-                              </div>
-                            </div>
-
-                            {/* Historical Lineage */}
-                            {generatedImages.map((img, idx) => (
-                              <div key={idx} className={`flex ${variationsViewMode === 'grid' ? 'flex-col items-center space-y-3' : 'flex-row items-center gap-6 p-4 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/10 transition-colors'}`}>
-                                <div
-                                  className={`group/thumb relative rounded-[2rem] overflow-hidden border-2 border-primary/40 hover:border-primary transition-all cursor-zoom-in shadow-[0_0_30px_rgba(99,102,241,0.2)] shrink-0 ${variationsViewMode === 'grid' ? 'w-full aspect-square' : 'w-24 h-24'}`}
-                                  onClick={() => handleAssetSelection(img.url, img.title, img.prompt, img.variables)}
-                                >
-                                  <img src={img.url} className="w-full h-full object-cover group-hover/thumb:scale-110 transition-transform duration-700" alt="" />
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 backdrop-blur-[1px] pointer-events-none group-hover/thumb:pointer-events-auto z-30">
-                                    <button
-                                      className={`py-2.5 bg-white/10 hover:bg-white/20 backdrop-blur-[2px] border border-white/20 rounded-xl text-[10px] font-black text-white uppercase tracking-[0.2em] transition-all duration-500 shadow-xl hover:scale-105 active:scale-95 ${variationsViewMode === 'grid' ? 'w-32' : 'w-12 h-8 text-[8px] px-2'}`}
-                                      onClick={(e) => { e.stopPropagation(); setPreviewImageUrl(img.url); setPreviewTitle(img.title || '<no title>'); setPreviewPrompt(img.prompt || null); }}
-                                    >
-                                      {variationsViewMode === 'grid' ? 'View Vision' : <Maximize2 className="w-3 h-3 mx-auto" />}
-                                    </button>
-                                    <button
-                                      className={`py-2.5 bg-primary/80 hover:bg-primary border border-primary/20 rounded-xl text-[10px] font-black text-white uppercase tracking-[0.2em] transition-all duration-500 shadow-xl flex items-center justify-center gap-2 hover:scale-105 active:scale-95 ${variationsViewMode === 'grid' ? 'w-32' : 'w-12 h-8 text-[8px] px-2'}`}
-                                      onClick={(e) => { e.stopPropagation(); handleAssetSelection(img.url, img.title, img.prompt, img.variables); }}
-                                    >
-                                      <Check className="w-3 h-3" />{variationsViewMode === 'grid' ? ' Select' : ''}
-                                    </button>
-                                  </div>
-                                  <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 to-transparent z-20 pointer-events-none">
-                                    <span className={`text-white/40 font-bold uppercase truncate text-center tracking-widest block ${variationsViewMode === 'grid' ? 'text-[8px]' : 'hidden'}`}>{img.title || '<no title>'}</span>
-                                  </div>
-                                </div>
-                                <div className={variationsViewMode === 'list' ? 'flex-1 min-w-0 flex flex-col items-start' : ''}>
-                                  {variationsViewMode === 'list' && (
-                                    <div className="mb-2">
-                                      <p className="text-[12px] font-black text-white truncate max-w-sm">{img.title || '<no title>'}</p>
-                                      {img.prompt && <p className="text-[9px] text-gray-500 truncate max-w-sm mt-1">{img.prompt}</p>}
-                                    </div>
-                                  )}
-                                  <span className="text-[14px] font-black text-primary uppercase tracking-[0.2em] bg-primary/10 px-4 py-1.5 rounded-full border border-primary/30 shadow-lg shadow-primary/10 inline-block">
-                                    v: {((generatedImages.length - idx) * 0.1).toFixed(1)}
-                                  </span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                       </div>
+                      <RegistryVariations
+                        generatedImages={generatedImages}
+                        isVariationsCollapsed={isVariationsCollapsed}
+                        selectedVariations={selectedVariations}
+                        variationsViewMode={variationsViewMode}
+                        originalSnapshot={originalSnapshot}
+                        selectedPrompt={selectedPrompt}
+                        profile={profile}
+                        user={user}
+                        setIsVariationsCollapsed={setIsVariationsCollapsed}
+                        handleDeleteSelectedVariations={handleDeleteSelectedVariations}
+                        selectAllVariations={selectAllVariations}
+                        setVariationsViewMode={setVariationsViewMode}
+                        handleAssetSelection={handleAssetSelection}
+                        setPreviewImageUrl={setPreviewImageUrl}
+                        setPreviewTitle={setPreviewTitle}
+                        setPreviewPrompt={setPreviewPrompt}
+                        handleClone={handleClone as any}
+                        toggleSelectVariation={toggleSelectVariation}
+                        onViewInGallery={handleViewInGallery}
+                      />
 
                        {/* Ecosystem Asset Sync */}
                        <div className="bg-black/40 border border-white/5 rounded-3xl p-6 relative overflow-hidden group mt-8">
@@ -1382,7 +1715,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                             {/* Current Blueprint Image */}
                              <div className="group relative aspect-square rounded-[2rem] overflow-hidden border border-white/10 hover:border-primary/50 transition-all cursor-zoom-in shadow-xl" onClick={() => handleAssetSelection(selectedPrompt.thumbnailUrl || null, selectedPrompt.title, selectedPrompt.template || selectedPrompt.prompts?.[0])}>
-                                <img src={selectedPrompt.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${selectedPrompt.id}`} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt="" />
+                                <img src={selectedPrompt.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${selectedPrompt.id}`} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-700" alt="" />
                                 <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex flex-col gap-2 z-20">
                                    <div className="flex items-center justify-between pointer-events-auto">
                                       <span className="text-[8px] font-black text-primary uppercase tracking-widest shrink-0">Current Thumbnail</span>
@@ -1408,7 +1741,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                             {/* Generated Variations */}
                              {generatedImages.map((img, idx) => (
                                <div key={idx} className="group relative aspect-square rounded-[2rem] overflow-hidden border-2 border-primary/40 hover:border-primary transition-all cursor-zoom-in shadow-[0_0_30px_rgba(99,102,241,0.2)]" onClick={() => handleAssetSelection(img.url, img.title, img.prompt)}>
-                                  <img src={img.url} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" alt="" />
+                                  <img src={img.url} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-700" alt="" />
                                   <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex flex-col gap-2 z-20">
                                       <div className="flex items-center justify-between pointer-events-auto">
                                           <span className="text-[8px] font-black text-primary uppercase shrink-0">VARIATION {generatedImages.length - idx}</span>
@@ -1496,7 +1829,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
 
                  {/* Engine Selector — Diagnostic Cockpit */}
                  <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-white/5">
-                    <div className="flex items-center gap-3 px-4 py-2 bg-white/5 rounded-xl border border-white/10 shadow-xl backdrop-blur-md flex-1">
+                    <div className="flex items-center gap-3 px-4 py-2 bg-[#12121a] rounded-xl border border-white/10 shadow-xl backdrop-blur-md flex-1">
                        <Zap className="w-4 h-4 text-primary animate-pulse shrink-0" />
                        <select 
                            value={engine}
@@ -1558,6 +1891,15 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                                    Save New Set
                                </button>
                            )}
+                           {profile?.role === 'su' && (
+                               <button
+                                   onClick={() => topUpCredits(500)}
+                                   className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-accent hover:text-white px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/20 rounded-lg transition-all"
+                               >
+                                   <Zap className="w-3 h-3" />
+                                   Architectural Sync (+500)
+                               </button>
+                           )}
                         </div>
                         <button onClick={handleSubmit} disabled={generating || !user || !resultantPrompt} className={`relative w-full overflow-hidden py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-300 ${generating || !user || !resultantPrompt ? 'opacity-50 cursor-not-allowed bg-white/5 text-gray-400' : 'bg-brand-gradient text-white hover:scale-[1.02] shadow-[0_0_30px_rgba(99,102,241,0.3)]'}`}>
                           <span className="relative z-10 flex items-center gap-3">
@@ -1603,13 +1945,25 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                               <Sparkles className="w-3 h-3" />
                               {progressMsg || 'Processing...'}
                            </p>
-                           <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest tabular-nums">{Math.round((progressCurrent / progressTotal) * 100)}%</span>
+                           <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest tabular-nums">
+                              {Math.round(((status.filter(s => s.status === 'done').length) / status.length) * 100)}%
+                           </span>
                         </div>
                         <div className="h-1 bg-white/5 rounded-full overflow-hidden border border-white/5">
                            <div 
                             className="h-full bg-brand-gradient transition-all duration-500 ease-out shadow-[0_0_15px_rgba(99,102,241,0.4)]"
-                            style={{ width: `${(progressCurrent / progressTotal) * 100}%` }}
+                            style={{ width: `${(status.filter(s => s.status === 'done').length / status.length) * 100}%` }}
                            ></div>
+                        </div>
+
+                        <div className="pt-6 flex justify-center">
+                            <button 
+                              onClick={handleCancelGeneration}
+                              className="px-6 py-2.5 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-[0.2em] border border-red-500/20 transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-3"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                                Cancel Command
+                            </button>
                         </div>
                        </div>
 
@@ -1652,17 +2006,17 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
               </div>
             )}
             
-            {generatedImages.length > 0 && (
+            {(selectedPrompt?.thumbnailUrl || generatedImages[0]?.url) && (
                 <div 
                     className="relative group cursor-zoom-in"
                     onClick={() => { 
-                        setPreviewImageUrl(generatedImages[0].url); 
-                        setPreviewTitle(generatedImages[0].title || '<no title>'); 
-                        setPreviewPrompt(generatedImages[0].prompt || null);
+                        setPreviewImageUrl(selectedPrompt?.thumbnailUrl || generatedImages[0]?.url); 
+                        setPreviewTitle(selectedPrompt?.title || generatedImages[0]?.title || '<no title>'); 
+                        setPreviewPrompt(selectedPrompt?.template || generatedImages[0]?.prompt || null);
                     }}
                 >
                   <div className="absolute -inset-1 bg-brand-gradient rounded-3xl blur opacity-30 group-hover:opacity-50 transition-all duration-500"></div>
-                  <img src={generatedImages[0].url} className="relative w-full rounded-2xl shadow-2xl border border-white/10 group-hover:scale-[1.01] transition-transform duration-500" alt="Result" />
+                  <img src={selectedPrompt?.thumbnailUrl || generatedImages[0]?.url} className="relative w-full rounded-2xl shadow-2xl border border-white/10 group-hover:scale-[1.01] transition-transform duration-500" alt="Vision Preview" />
                   
                   {/* Hover Overlay */}
                   <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl flex items-center justify-center backdrop-blur-sm">
@@ -1677,9 +2031,9 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
         </section>
       )}
       {/* Image Preview Modal */}
-      {previewImageUrl && (
+      {previewImageUrl && createPortal(
         <div 
-          className="fixed inset-0 z-[110] flex items-center justify-center p-4 md:p-12 backdrop-blur-3xl bg-black/80 animate-fade-in"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 md:p-12 backdrop-blur-3xl bg-black/80 animate-fade-in"
           onClick={() => { setPreviewImageUrl(null); setPreviewPrompt(null); }}
         >
            <button 
@@ -1716,7 +2070,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                   </div>
               </div>
 
-              {previewPrompt && [...previewPrompt.matchAll(/{{(.*?)}}/g)].length > 0 && (
+              {previewPrompt && [...previewPrompt.matchAll(VAR_REGEX)].length > 0 && (
                 <div className="w-full md:w-96 bg-[#1a1b26] border-l border-white/10 p-8 flex flex-col gap-6 overflow-y-auto hidden md:flex z-20">
                     <div>
                         <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
@@ -1726,7 +2080,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                         <p className="text-xs text-gray-500 max-w-[200px]">Metadata parameter values structurally embedded in this generation.</p>
                     </div>
                     <div className="space-y-4">
-                        {[...previewPrompt.matchAll(/{{(.*?)}}/g)].map((match, idx) => {
+                        {[...previewPrompt.matchAll(VAR_REGEX)].map((match, idx) => {
                             const parts = match[1].split(':');
                             const key = parts[0];
                             const val = parts.length > 1 ? parts[1] : '<undefined>';
@@ -1741,9 +2095,121 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                 </div>
               )}
            </div>
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+        {/* Metrics Status Popup */}
+        {viewingMetrics && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 sm:p-0">
+             <div className="absolute inset-0 bg-black/80 backdrop-blur-md animate-fade-in" onClick={() => setViewingMetrics(null)} />
+             <div className="relative w-full max-w-lg glass-panel p-10 space-y-8 bg-background-secondary/95 border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] animate-fade-in-up">
+                <button 
+                  onClick={() => setViewingMetrics(null)}
+                  className="absolute top-6 right-6 p-2 text-white/20 hover:text-white transition-colors"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+                
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Architectural Analysis</p>
+                  <h2 className="text-3xl font-black uppercase tracking-tighter text-white">{viewingMetrics.title}</h2>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6">
+                   {/* Complexity */}
+                   <div className="p-6 bg-white/[0.03] rounded-[2rem] border border-white/5 space-y-4">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <Layers className="w-5 h-5 text-primary" />
+                          <span className="text-xs font-black uppercase tracking-widest text-white/50">Prompt Complexity</span>
+                        </div>
+                        <span className="text-xl font-black text-primary">{Math.round(calculateComplexity(viewingMetrics.template, viewingMetrics.prompts) * 100)}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                        <div className="h-full bg-primary" style={{ width: `${calculateComplexity(viewingMetrics.template, viewingMetrics.prompts) * 100}%` }} />
+                      </div>
+                      <p className="text-[10px] font-medium text-gray-500 leading-relaxed uppercase tracking-wider">
+                        Measures variable density and structural placeholders within the blueprint. High complexity indicates a more versatile template requiring precise overrides.
+                      </p>
+                   </div>
+
+                   {/* Freshness */}
+                   <div className="p-6 bg-white/[0.03] rounded-[2rem] border border-white/5 space-y-4">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <RefreshCw className="w-5 h-5 text-accent" />
+                          <span className="text-xs font-black uppercase tracking-widest text-white/50">Sync Freshness</span>
+                        </div>
+                        <span className="text-xl font-black text-accent">{Math.round(calculateFreshness(viewingMetrics.updatedAt) * 100)}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                        <div className="h-full bg-accent" style={{ width: `${calculateFreshness(viewingMetrics.updatedAt) * 100}%` }} />
+                      </div>
+                      <p className="text-[10px] font-medium text-gray-500 leading-relaxed uppercase tracking-wider">
+                        Architectural data recency score. Entries older than 30 cycles enter decommissioning status. Last synchronized: {new Date(viewingMetrics.updatedAt || Date.now()).toLocaleDateString()}.
+                      </p>
+                   </div>
+
+                   {/* Usage */}
+                   <div className="p-6 bg-white/[0.03] rounded-[2rem] border border-white/5 space-y-4">
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                          <Zap className="w-5 h-5 text-white/40" />
+                          <span className="text-xs font-black uppercase tracking-widest text-white/50">Ecosystem Usage</span>
+                        </div>
+                        <span className="text-xl font-black text-white/70">{Math.round(calculateUsageRating(viewingMetrics.id) * 100)}%</span>
+                      </div>
+                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
+                        <div className="h-full bg-white/30" style={{ width: `${calculateUsageRating(viewingMetrics.id) * 100}%` }} />
+                      </div>
+                      <p className="text-[10px] font-medium text-gray-500 leading-relaxed uppercase tracking-wider">
+                        Frequency of architectural implementation across the Stillwater cluster. Higher ratings indicate robust blueprint performance and ecosystem compatibility.
+                      </p>
+                   </div>
+                </div>
+
+                <div className="pt-4">
+                  <button 
+                    onClick={() => setViewingMetrics(null)}
+                    className="w-full py-4 bg-white text-black text-[10px] font-black uppercase tracking-[0.3em] rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl"
+                  >
+                    Close Analysis
+                  </button>
+                </div>
+             </div>
+          </div>
+        )}
+        {/* Clone Success Notification */}
+        {notification && (
+          <div className="fixed bottom-10 right-10 z-[200] max-w-sm animate-in slide-in-from-right-10 duration-500">
+             <div className="relative glass-panel p-5 bg-[#1c1c2b]/95 border border-primary/30 shadow-[0_0_40px_rgba(99,102,241,0.2)] rounded-2xl flex flex-col gap-3">
+                <div className="flex items-center gap-3">
+                   <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center">
+                      <Check className="w-4 h-4 text-primary" />
+                   </div>
+                   <div>
+                      <h4 className="text-[10px] font-black text-white uppercase tracking-widest leading-none">Architecture Registered</h4>
+                      <p className="text-[9px] text-gray-500 mt-1 uppercase font-bold truncate max-w-[200px]">{notification.title}</p>
+                   </div>
+                </div>
+                <div className="flex items-center gap-2 mt-1">
+                   <button 
+                     onClick={() => { handleViewInGallery({ promptSetID: notification.id }); setNotification(null); }}
+                     className="flex-1 py-2 bg-primary text-white text-[9px] font-black uppercase tracking-widest rounded-lg hover:scale-[1.02] transition-all"
+                   >
+                     View in Gallery
+                   </button>
+                   <button 
+                     onClick={() => setNotification(null)}
+                     className="px-3 py-2 bg-white/5 text-gray-500 hover:text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition-all"
+                   >
+                     Dismiss
+                   </button>
+                </div>
+             </div>
+          </div>
+        )}
+      </div>
   );
 };
 

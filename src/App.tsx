@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Sparkles, X, AlertCircle, Loader2 } from 'lucide-react';
+import { Sparkles, AlertCircle, Loader2 } from 'lucide-react';
 import { Routes, Route, useSearchParams } from 'react-router-dom';
 import PromptMaster from './components/PromptMaster';
 import AdminConsole from './components/AdminConsole';
@@ -11,7 +11,7 @@ function App() {
   const { loading } = useAuth();
   const [searchParams] = useSearchParams();
   const [currentTheme, setCurrentTheme] = useState('midnight');
-  const [activeTab, setActiveTab] = useState<'blueprints' | 'exemplars'>('blueprints');
+  const [activeTab, setActiveTab] = useState<'blueprints' | 'exemplars' | 'gallery'>('blueprints');
 
   const themes = {
     midnight: 'from-[#181825] to-[#1e1e2e]',
@@ -55,7 +55,7 @@ function App() {
         <section className="animate-fade-in-up opacity-0" style={{ animationDelay: '200ms' }}>
            <div className="flex justify-between items-end">
               <div className="space-y-2">
-                 <h2 className="text-4xl md:text-5xl font-black tracking-tighter">Customize<br/><span className="brand-gradient-text uppercase">{activeTab === 'blueprints' ? 'Blueprint Registry' : 'PromptTool Exemplars'}</span></h2>
+                 <h2 className="text-4xl md:text-5xl font-black tracking-tighter">Customize<br/><span className="brand-gradient-text uppercase">{activeTab === 'blueprints' ? 'Blueprint Registry' : activeTab === 'exemplars' ? 'PromptTool Exemplars' : 'My Gallery'}</span></h2>
               </div>
               <div className="text-right hidden md:block">
                  <p className="text-xs font-bold text-gray-600 uppercase tracking-widest mb-1">Active Engine</p>
@@ -70,8 +70,8 @@ function App() {
         {/* UI Framework with Dynamic Routes */}
         <div className="animate-fade-in-up opacity-0" style={{ animationDelay: '500ms' }}>
            <Routes>
-              <Route path="/" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} confirmModal={confirmModal} setConfirmModal={setConfirmModal} />} />
-              <Route path="/p/:promptId" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} confirmModal={confirmModal} setConfirmModal={setConfirmModal} />} />
+              <Route path="/" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} setConfirmModal={setConfirmModal} />} />
+              <Route path="/p/:promptId" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} setConfirmModal={setConfirmModal} />} />
               <Route path="/admin" element={<AdminConsole />} />
            </Routes>
         </div>
@@ -98,7 +98,7 @@ function App() {
                    {confirmModal.isDanger ? <AlertCircle className="w-6 h-6 text-red-400"/> : <Sparkles className="w-6 h-6 text-primary"/>}
                 </div>
                 <div>
-                   <h3 className="text-xl font-black text-white">{confirmModal.title}</h3>
+                    <h3 className="text-xl font-black text-white">{confirmModal.title}</h3>
                    <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">Architecture Safety Guard</p>
                 </div>
              </div>
