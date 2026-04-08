@@ -57,6 +57,90 @@ const qualityLabel: Record<string, string> = {
   standard: 'SD', high: 'HD', ultra: '4K', video: 'VID'
 };
 
+// ── Variation Set Explorer ────────────────────────────────────────
+function VariationExplorer({ 
+    group, 
+    onClose, 
+    onLightbox,
+    onDelete,
+    onToggleSelect,
+    selectedIds,
+    deletingId,
+    onViewVariation
+}: { 
+    group: GImage[]; 
+    onClose: () => void;
+    onLightbox: (img: GImage) => void;
+    onDelete: (id: string) => void;
+    onToggleSelect: (id: string) => void;
+    selectedIds: Set<string>;
+    deletingId: string | null;
+    onViewVariation?: (img: GImage) => void;
+}) {
+  const scrollRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) node.scrollTop = 0;
+  }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = 'unset'; };
+  }, []);
+
+  if (!group || group.length === 0) return null;
+
+  return createPortal(
+    <div 
+      ref={scrollRef}
+      className="fixed inset-0 z-[210] overflow-y-auto bg-black/95 backdrop-blur-3xl" 
+      onClick={onClose}
+    >
+      <div className="min-h-screen w-full flex flex-col p-6 md:p-12" onClick={e => e.stopPropagation()}>
+        {/* Header Area */}
+        <div className="max-w-7xl w-full mx-auto flex items-center justify-between mb-12">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="w-2 h-2 rounded-full bg-primary shadow-lg shadow-primary/50 animate-pulse"></div>
+              <span className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Variation Set Explorer</span>
+            </div>
+            <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-white">
+              {group[0]?.title || "Neural Generation Set"}
+            </h3>
+            <p className="text-xs font-black text-gray-500 uppercase tracking-[0.2em]">
+              Index: <span className="text-white/40">{group[0]?.promptSetID}</span> • {group.length} Fragments
+            </p>
+          </div>
+          <button 
+            onClick={onClose}
+            className="p-5 bg-white/5 hover:bg-red-500/20 hover:text-red-500 rounded-3xl transition-all border border-white/10 group active:scale-90"
+          >
+            <X className="w-8 h-8 transition-transform group-hover:rotate-90" />
+          </button>
+        </div>
+
+        {/* Grid Area */}
+        <div className="max-w-7xl w-full mx-auto flex-1">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6 pb-24">
+            {group.map(img => (
+              <GalleryCard
+                key={img.id}
+                image={img}
+                viewMode="grid-4"
+                isSelected={selectedIds.has(img.id)}
+                onToggleSelect={() => onToggleSelect(img.id)}
+                onLightbox={() => onLightbox(img)}
+                onDelete={() => onDelete(img.id)}
+                deleting={deletingId === img.id}
+                onViewVariation={onViewVariation}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // ── Lightbox / Preview Modal ───────────────────────────────────────
 function Lightbox({ 
     image, 
@@ -78,84 +162,75 @@ function Lightbox({
   }, [onClose]);
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[1000] flex items-center justify-center p-4 md:p-12 animate-fade-in"
-      onClick={onClose}
-    >
-      <div className="absolute inset-0 bg-black/90 backdrop-blur-2xl" />
-      
-      <button
-        onClick={onClose}
-        className="absolute top-8 right-8 z-[1100] p-4 bg-white/5 hover:bg-red-500 text-white rounded-2xl border border-white/10 transition-all group"
-      >
-        <X className="w-6 h-6 group-hover:scale-110 transition-transform" />
-      </button>
-
-      <div
-        className="relative max-w-7xl w-full h-full max-h-[90vh] flex flex-col md:flex-row items-stretch rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/10 bg-[#0a0a0f]"
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Media Side */}
-        <div className="flex-1 relative bg-black/40 flex items-center justify-center overflow-hidden">
-             <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.05)_0%,transparent_100%)]"></div>
-             <img
-               src={image.imageUrl}
-               alt={image.prompt}
-               className="relative z-10 w-full h-full object-contain p-8 animate-in zoom-in-95 duration-500"
-             />
-        </div>
-
-        {/* Info Side */}
-        <div className="w-full md:w-[400px] border-l border-white/10 p-8 flex flex-col gap-8 bg-[#12121a]/50 backdrop-blur-3xl overflow-y-auto">
-          <div className="space-y-4">
-            <div className="flex items-center gap-3">
-               <div className="w-2 h-2 rounded-full bg-primary shadow-lg shadow-primary/50"></div>
-               <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">High-Fidelity Manifest</span>
-            </div>
-            <h3 className="text-2xl font-black text-white uppercase tracking-tighter leading-none">
-              {image.title || "Untitled Fragment"}
-            </h3>
-            <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{formatDate(image.createdAt)}</p>
+    <div className="fixed inset-0 z-[1000] overflow-y-auto" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/95 backdrop-blur-3xl pointer-events-none" />
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div
+          className="relative max-w-7xl w-full h-auto max-h-[95vh] flex flex-col md:flex-row items-stretch rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/10 bg-[#0a0a0f]"
+          onClick={e => e.stopPropagation()}
+        >
+          {/* Media Side */}
+          <div className="flex-1 relative bg-black/40 flex items-center justify-center overflow-hidden min-h-[400px]">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(99,102,241,0.05)_0%,transparent_100%)]"></div>
+            <img
+              src={image.imageUrl}
+              alt={image.prompt}
+              className="relative z-10 w-full h-full object-contain p-8 animate-in zoom-in-95 duration-500"
+            />
           </div>
 
-          <div className="space-y-4">
-             <div className="p-5 bg-white/5 border border-white/5 rounded-2xl space-y-3">
+          {/* Info Side */}
+          <div className="w-full md:w-[400px] border-l border-white/10 p-8 flex flex-col gap-8 bg-[#12121a]/50 backdrop-blur-3xl overflow-y-auto">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-primary shadow-lg shadow-primary/50"></div>
+                <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">High-Fidelity Manifest</span>
+              </div>
+              <h3 className="text-2xl font-black text-white uppercase tracking-tighter leading-none">
+                {image.title || "Untitled Fragment"}
+              </h3>
+              <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{formatDate(image.createdAt)}</p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-5 bg-white/5 border border-white/5 rounded-2xl space-y-3">
                 <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Neural Seed Hash</p>
                 <p className="text-xs text-white/70 leading-relaxed font-medium font-mono break-all">{image.prompt}</p>
-             </div>
-          </div>
+              </div>
+            </div>
 
-          <div className="grid grid-cols-2 gap-3">
-             <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-2">
                 <Layers className="w-4 h-4 text-primary" />
                 <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Quality</p>
                 <p className="text-[10px] font-black text-white uppercase">{image.settings?.quality || 'N/A'}</p>
-             </div>
-             <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-2">
+              </div>
+              <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-2">
                 <HistoryIcon className="w-4 h-4 text-primary" />
                 <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Type</p>
                 <p className="text-[10px] font-black text-white uppercase">{image.settings?.modality || 'Image'}</p>
-             </div>
-          </div>
+              </div>
+            </div>
 
-          <div className="mt-auto space-y-3 pt-6 border-t border-white/5">
-            {onViewVariation && image.promptSetID && (
+            <div className="mt-auto space-y-3 pt-6 border-t border-white/5">
+              {onViewVariation && image.promptSetID && (
+                <button
+                  onClick={() => {
+                    onViewVariation(image);
+                    onClose();
+                  }}
+                  className="w-full py-4 bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-3"
+                >
+                  <Edit3 className="w-4 h-4" /> View in Workbench
+                </button>
+              )}
               <button
-                onClick={() => {
-                   onViewVariation(image);
-                   onClose();
-                }}
-                className="w-full py-4 bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-3"
+                onClick={onClose}
+                className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all"
               >
-                <Edit3 className="w-4 h-4" /> View in Workbench
+                Close Asset Variation
               </button>
-            )}
-            <button
-               onClick={onClose}
-               className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all"
-            >
-              Close Asset Variation
-            </button>
+            </div>
           </div>
         </div>
       </div>
@@ -257,9 +332,9 @@ function GalleryCard({
               <Edit3 className="w-2.5 h-2.5" /> View/Update
             </button>
           )}
-          {isPublished && <span className="text-[8px] font-black uppercase tracking-widest text-yellow-400 bg-yellow-500/10 px-2 py-0.5 rounded-full border border-yellow-500/20 flex items-center gap-1"><Trophy className="w-2.5 h-2.5" /> Hub</span>}
-          {image.isExemplar && <span className="text-[8px] font-black uppercase tracking-widest text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20 flex items-center gap-1"><Star className="w-2.5 h-2.5" /> Exemplar</span>}
-          {image.sourceImageId && <span className="text-[8px] font-black uppercase tracking-widest text-accent/80 bg-accent/10 px-2 py-0.5 rounded-full border border-accent/20 flex items-center gap-1"><Layers className="w-2.5 h-2.5" /> Variant</span>}
+          {isPublished && <span className="badge badge-warning"><Trophy className="w-2.5 h-2.5" /> Hub</span>}
+          {image.isExemplar && <span className="badge badge-info"><Star className="w-2.5 h-2.5" /> Exemplar</span>}
+          {image.sourceImageId && <span className="badge badge-accent"><Layers className="w-2.5 h-2.5" /> Variant</span>}
           <span className="text-[9px] font-bold text-gray-600">{formatDate(image.createdAt)}</span>
           <button
             onClick={onDelete}
@@ -302,27 +377,27 @@ function GalleryCard({
       {/* overlays */}
       <div className="absolute top-10 left-2 flex flex-col gap-1 z-10 pointer-events-none">
         {isPublished && (
-          <div className="bg-yellow-500 text-white rounded-md px-1.5 py-0.5 flex items-center gap-1">
+          <div className="badge badge-warning">
             <Trophy className="w-2.5 h-2.5" />
-            <span className="text-[7px] font-black uppercase tracking-widest">Hub</span>
+            <span>Hub</span>
           </div>
         )}
         {image.isExemplar && (
-          <div className="bg-gradient-to-r from-indigo-600 to-violet-600 text-white rounded-md px-1.5 py-0.5 flex items-center gap-1">
+          <div className="badge badge-info">
             <Star className="w-2.5 h-2.5" />
-            <span className="text-[7px] font-black uppercase tracking-widest">Exemplar</span>
+            <span>Exemplar</span>
           </div>
         )}
         {image.sourceImageId && (
-          <div className="bg-accent text-white rounded-md px-1.5 py-0.5 flex items-center gap-1">
+          <div className="badge badge-accent">
             <Layers className="w-2.5 h-2.5" />
-            <span className="text-[7px] font-black uppercase tracking-widest">Variant</span>
+            <span>Variant</span>
           </div>
         )}
         {isVideo && (
-          <div className="bg-purple-600 text-white rounded-md px-1.5 py-0.5 flex items-center gap-1">
+          <div className="badge badge-primary">
             <Film className="w-2.5 h-2.5" />
-            <span className="text-[7px] font-black uppercase tracking-widest">Video</span>
+            <span>Video</span>
           </div>
         )}
       </div>
@@ -330,7 +405,7 @@ function GalleryCard({
       {/* quality pill */}
       {image.settings?.quality && (
         <div className="absolute bottom-8 left-2 z-10 pointer-events-none">
-          <span className="text-[7px] font-black uppercase tracking-widest text-primary bg-primary/20 border border-primary/30 px-1.5 py-0.5 rounded-full">
+          <span className="badge badge-primary">
             {qualityLabel[image.settings.quality] ?? image.settings.quality}
           </span>
         </div>
@@ -718,42 +793,18 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
         <Lightbox image={lightboxImage} onClose={() => setLightboxImage(null)} />
       )}
 
-      {/* ── Group Detail Modal ────────────────────────────────────── */}
+      {/* ── Group Detail Modal (Zen Immersion) ───────────────────────── */}
       {selectedGroup && (
-        <div className="fixed inset-0 z-[210] bg-black/95 backdrop-blur-3xl flex items-center justify-center p-4">
-          <div className="relative w-full max-w-6xl max-h-[90vh] flex flex-col gap-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10">
-              <div className="space-y-1">
-                <h3 className="text-xl font-black uppercase tracking-tighter text-white">Variation Set Explorer</h3>
-                <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{selectedGroup.length} Unique Variations</p>
-              </div>
-              <button 
-                onClick={() => setSelectedGroup(null)}
-                className="p-3 bg-white/5 hover:bg-white/10 rounded-xl transition-all border border-white/10"
-              >
-                <X className="w-6 h-6 text-white" />
-              </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-12">
-                {selectedGroup.map(img => (
-                  <GalleryCard
-                    key={img.id}
-                    image={img}
-                    viewMode="grid-4"
-                    isSelected={selectedIds.has(img.id)}
-                    onToggleSelect={() => toggleSelect(img.id)}
-                    onLightbox={() => setLightboxImage(img)}
-                    onDelete={() => setConfirmDeleteId(img.id)}
-                    deleting={deletingId === img.id}
-                    onViewVariation={onViewVariation}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+        <VariationExplorer
+          group={selectedGroup}
+          onClose={() => setSelectedGroup(null)}
+          onLightbox={setLightboxImage}
+          onDelete={setConfirmDeleteId}
+          onToggleSelect={toggleSelect}
+          selectedIds={selectedIds}
+          deletingId={deletingId}
+          onViewVariation={onViewVariation}
+        />
       )}
       <ConfirmationModal
         isOpen={!!confirmDeleteId}

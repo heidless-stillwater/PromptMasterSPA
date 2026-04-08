@@ -18,10 +18,14 @@ service cloud.firestore {
       allow read, write: if request.auth != null && (resource == null || resource.data.uid == request.auth.uid) ;
     }
 
-    // Personal Blueprints (Owner only)
+    // Personal Blueprints (Owner only & Registry Suite required)
     match /blueprints/{blueprintId} {
-      allow read: if request.auth != null && (resource == null || resource.data.uid == request.auth.uid);
-      allow write: if request.auth != null && (request.resource.data.uid == request.auth.uid || resource.data.uid == request.auth.uid);
+      allow read: if request.auth != null && 
+                  (resource == null || resource.data.uid == request.auth.uid) ;
+      allow write: if request.auth != null && 
+                   (get(/databases/(default)/documents/users/$(request.auth.uid)).data.subscriptionMetadata.activeSuites.hasAny(['registry', 'pro']) || 
+                    get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'su']) &&
+                   (request.resource.data.uid == request.auth.uid || resource.data.uid == request.auth.uid);
     }
   }
 }

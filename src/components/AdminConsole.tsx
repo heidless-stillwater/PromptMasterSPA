@@ -1,6 +1,10 @@
 import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Shield, Users, Activity, Zap, TrendingUp, Settings, ChevronRight, BarChart3, Lock, Database, AlertTriangle, RefreshCcw, UserCheck, Mail, Fingerprint, Globe } from 'lucide-react';
+import { 
+    Activity, Shield, RefreshCcw, Database, 
+    AlertTriangle, Server, Trash2, CheckCircle2,
+    Zap, Globe, ChevronRight, Star, Check, Users, TrendingUp, Mail, Fingerprint, UserCheck, Lock, BarChart3
+} from 'lucide-react';
 import { Navigate } from 'react-router-dom';
 
 const AdminConsole: React.FC = () => {
@@ -201,7 +205,11 @@ const AdminConsole: React.FC = () => {
                                             <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest ml-1">Subscription</label>
                                             <div className="bg-black/60 border border-white/5 p-4 rounded-2xl flex items-center gap-3">
                                                 <Zap className="w-4 h-4 text-amber-500" />
-                                                <span className="text-xs font-black text-white uppercase">{profile?.subscription || 'free'}</span>
+                                                <span className="text-xs font-black text-white uppercase">
+                                                    {typeof profile?.subscription === 'string' 
+                                                        ? profile.subscription 
+                                                        : (profile?.subscription as any)?.bundleId || 'PRO'}
+                                                </span>
                                             </div>
                                         </div>
                                     </div>
@@ -209,15 +217,127 @@ const AdminConsole: React.FC = () => {
 
                                 <button 
                                     className="w-full flex items-center justify-center gap-3 bg-white text-black py-4 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] hover:bg-primary hover:text-white transition-all shadow-2xl"
-                                    onClick={() => alert("Identity update locked. Use Master Sync to align.")}
+                                    onClick={() => handleMasterSync()}
                                 >
-                                    Update Local Metadata
+                                    <RefreshCcw className="w-3.5 h-3.5" /> Force Master Identity Sync
                                 </button>
                             </div>
                         </div>
 
-                        {/* Master Record Comparison */}
+                        {/* Premium Platform Access Matrix */}
                         <div className="space-y-6">
+                            {/* Active Plan Features Matrix */}
+                            <div className="glass-panel p-8 border-amber-500/20 bg-amber-500/5 relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                                    <Star className="w-24 h-24 text-amber-500" />
+                                </div>
+                                
+                                <div className="relative z-10">
+                                    <div className="flex items-center gap-4 mb-8">
+                                        <div className="p-3 bg-amber-500/20 rounded-2xl">
+                                            <Zap className="w-6 h-6 text-amber-500" />
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Active Plan</p>
+                                            <h2 className="text-xl font-black text-white uppercase tracking-tighter">
+                                                {profile?.suiteSubscription?.bundleId?.toUpperCase() || (profile?.subscription === 'pro' ? 'PRO ARCHITECT' : 'COMMUNITY NODE')}
+                                            </h2>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        {[
+                                            { 
+                                                title: 'Advanced Blueprints', 
+                                                desc: 'Architectural drafting with full metadata & versioning.', 
+                                                active: true 
+                                            },
+                                            { 
+                                                title: 'Global Ecosystem Sync', 
+                                                desc: 'Unified identity across Registry, Studio, and Hub.', 
+                                                active: profile?.subscription === 'pro' || !!profile?.suiteSubscription 
+                                            },
+                                            { 
+                                                title: 'Premium Archetypes', 
+                                                desc: 'Access to high-fidelity exemplar libraries.', 
+                                                active: profile?.subscription === 'pro' || !!profile?.suiteSubscription 
+                                            },
+                                            { 
+                                                title: 'Studio Workbench', 
+                                                desc: 'Integrated generative workbench and variable overrides.', 
+                                                active: !!profile?.suiteSubscription?.activeSuites?.includes('studio') || profile?.subscription === 'pro'
+                                            }
+                                        ].map((f, i) => (
+                                            <div 
+                                                key={i} 
+                                                className={`p-4 rounded-xl border transition-all ${f.active ? 'bg-white/5 border-white/10' : 'bg-transparent border-white/5 opacity-40'}`}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`p-1 rounded-full ${f.active ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-500'}`}>
+                                                        <Check className="w-3 h-3" />
+                                                    </div>
+                                                    <p className="text-[10px] font-black text-white uppercase tracking-wider">{f.title}</p>
+                                                </div>
+                                                <p className="text-[9px] text-gray-500 font-bold mt-2 leading-relaxed uppercase tracking-tight">
+                                                    {f.desc}
+                                                </p>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {(profile?.subscription !== 'pro' && !profile?.suiteSubscription) && (
+                                        <button 
+                                            onClick={() => window.location.href = 'http://localhost:3002/pricing'}
+                                            className="mt-8 w-full py-4 bg-amber-500 text-black font-black uppercase text-[10px] tracking-[0.2em] rounded-2xl hover:bg-white transition-all shadow-xl shadow-amber-500/20"
+                                        >
+                                            Unlock Master Suite Access
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="glass-panel p-8 border-primary/20 bg-primary/5 relative overflow-hidden group">
+                                <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                                    <Activity className="w-24 h-24 text-primary" />
+                                </div>
+                                <h3 className="text-sm font-black text-white uppercase tracking-widest mb-8 pb-4 border-b border-white/5 flex items-center gap-3 relative z-10">
+                                    <Zap className="w-5 h-5 text-primary" /> Premium Platform Access
+                                </h3>
+                                
+                                <div className="space-y-4 relative z-10">
+                                    {[
+                                        { suite: 'resources', label: 'Stillwater Resources', description: 'Global Blueprint Library', icon: Globe, href: 'http://localhost:3002/resources' },
+                                        { suite: 'studio', label: 'Stillwater Studio', description: 'Pro Generative Workbench', icon: Zap, href: 'http://localhost:3001/generate' },
+                                        { suite: 'registry', label: 'Stillwater Registry', description: 'Architectural Data Node', icon: Database, href: '#' },
+                                    ].map((s) => {
+                                        const activeSuites = profile?.suiteSubscription?.activeSuites || profile?.subscriptionMetadata?.activeSuites || [];
+                                        const hasAccess = activeSuites.includes(s.suite) || profile?.subscription === 'pro' || activeSuites.includes('promptmaster') || activeSuites.includes('studio');
+                                        
+                                        return (
+                                            <div 
+                                                key={s.suite} 
+                                                onClick={() => hasAccess && s.href !== '#' && (window.location.href = s.href)}
+                                                className={`flex items-center gap-4 p-4 rounded-2xl border transition-all ${hasAccess ? 'bg-white/5 border-white/10 hover:border-primary/40 cursor-pointer' : 'opacity-40 grayscale border-transparent cursor-not-allowed'}`}
+                                            >
+                                                <div className={`p-2 rounded-lg ${hasAccess ? 'bg-primary/20 text-primary' : 'bg-white/10 text-gray-500'}`}>
+                                                    <s.icon className="w-4 h-4" />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <p className="text-[10px] font-black text-white uppercase tracking-tighter">{s.label}</p>
+                                                        {hasAccess && <span className="text-[8px] font-black bg-green-500/20 text-green-500 px-1.5 py-0.5 rounded-md">ACTIVE</span>}
+                                                    </div>
+                                                    <p className="text-[9px] text-primary font-bold uppercase tracking-widest mt-1">
+                                                        {profile?.suiteSubscription?.bundleId?.toUpperCase() || 
+                                                         (typeof profile?.subscription === 'string' ? profile.subscription.toUpperCase() : 'PRO')} NODE
+                                                    </p>
+                                                </div>
+                                                <ChevronRight className="w-4 h-4 text-gray-600" />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                             <div className="glass-panel p-8 border-white/5">
                                 <h3 className="text-sm font-black text-white uppercase tracking-widest mb-8 pb-4 border-b border-white/5 flex items-center gap-3">
                                     <Database className="w-5 h-5 text-primary" /> Master Record Status

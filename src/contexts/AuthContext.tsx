@@ -1,17 +1,37 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, type User, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, updateDoc, increment } from 'firebase/firestore';
-import { auth, db, toolDb } from '../lib/firebase';
+import { auth, db, toolDb, resourcesDb } from '../lib/firebase';
 
 interface UserProfile {
   uid: string;
   email: string | null;
+  username?: string;
   displayName: string | null;
   photoURL: string | null;
   role: 'su' | 'admin' | 'member';
   credits?: number;
-  subscription?: 'free' | 'pro' | 'standard';
+  audienceMode?: 'casual' | 'professional';
+  subscription?: 'free' | 'pro' | 'standard' | {
+    bundleId: string;
+    activeSuites: string[];
+    status: string;
+  };
   dailyRemaining?: number;
+  
+  // Suite Entitlements (Shared across ecosystem)
+  subscriptionMetadata?: {
+    bundleId: string;
+    activeSuites: string[];
+    status: 'active' | 'past_due' | 'canceled' | 'incomplete';
+    expiresAt?: any;
+  };
+  suiteSubscription?: {
+    bundleId: string;
+    activeSuites: string[];
+    status: 'active' | 'past_due' | 'canceled' | 'incomplete';
+  };
+
   // Conflict Metadata
   isSynced?: boolean;
 }
@@ -56,10 +76,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let unsubscribeCredits: () => void = () => {};
 
     const authUnsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      unsubscribeSPA();
-      unsubscribeTool();
-      unsubscribeCredits();
-
       setUser(currentUser);
       
       if (currentUser) {
@@ -68,27 +84,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         unsubscribeSPA = onSnapshot(userRef, (docSnap) => {
            if (docSnap.exists()) {
              const data = docSnap.data();
-             setProfile(prev => ({ 
-               ...prev as UserProfile, 
-               uid: data.uid,
-               email: data.email,
-               displayName: data.displayName,
-               photoURL: data.photoURL,
-               role: data.role || 'member',
-               isSynced: data.isSynced
-             }));
+              setProfile(prev => ({ 
+                ...prev as UserProfile, 
+                uid: data.uid,
+                email: data.email,
+                displayName: data.displayName,
+                photoURL: data.photoURL,
+                role: data.role || 'member',
+                subscriptionMetadata: data.subscriptionMetadata,
+                suiteSubscription: data.suiteSubscription,
+                subscription: data.subscription,
+                isSynced: data.isSynced
+              }));
            } else {
+             const providerPhoto = currentUser.providerData.find(p => p.photoURL)?.photoURL;
              setDoc(userRef, {
                 uid: currentUser.uid,
                 email: currentUser.email,
                 displayName: currentUser.displayName,
-                photoURL: currentUser.photoURL,
+                photoURL: currentUser.photoURL || providerPhoto || null,
                 role: 'member',
                 createdAt: serverTimestamp(),
                 updatedAt: serverTimestamp(),
                 isSynced: true
              });
            }
+           // Handshake: Data is now arriving
+           setLoading(false);
         });
 
         // 2. Listen to Ecosystem Master Status (Subscription & Role Authority)
@@ -97,9 +119,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           if (docSnap.exists()) {
             const data = docSnap.data();
             setMasterData(data);
+            setProfile(prev => {
+              // Pro-Priority Logic: Never let a 'free' status from a sync delay overwrite a known 'pro' status
+              const currentSub = prev?.subscription || 'free';
+              if (currentSub === 'pro' && (!data.subscription || data.subscription === 'free')) {
+                return prev as UserProfile;
+              }
+              return {
+                ...prev as UserProfile,
+                subscription: data.subscription || 'free',
+                // Also merge any suite metadata if available in this DB
+                subscriptionMetadata: data.subscriptionMetadata || prev?.subscriptionMetadata,
+                suiteSubscription: data.suiteSubscription || prev?.suiteSubscription
+              };
+            });
+          }
+        });
+
+        // 3. Listen to Primary Resources Database (The Source of Truth)
+        const resourcesUserRef = doc(resourcesDb, 'users', currentUser.uid);
+        onSnapshot(resourcesUserRef, (docSnap) => {
+          if (docSnap.exists()) {
+            const data = docSnap.data();
             setProfile(prev => ({
               ...prev as UserProfile,
-              subscription: data.subscription || 'free',
+              role: data.role || prev?.role || 'member', // INHERIT MASTER ROLE
+              subscription: data.subscription || prev?.subscription,
+              subscriptionMetadata: data.subscriptionMetadata || prev?.subscriptionMetadata,
+              suiteSubscription: data.suiteSubscription || prev?.suiteSubscription
+            }));
+            // Also update masterData if it's currently missing role info
+            setMasterData((prev: any) => ({
+              ...prev,
+              role: data.role || prev?.role || 'member'
             }));
           }
         });
@@ -127,8 +179,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setProfile(null);
         setHasConflict(false);
         setConflicts([]);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => {

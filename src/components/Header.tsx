@@ -5,7 +5,7 @@ import { Zap, Shield, LogOut, LayoutGrid, Sparkles, CreditCard, ShoppingCart, Al
 import AuthModal from './AuthModal';
 
 const Header: React.FC = () => {
-  const { user, profile, logout, topUpCredits, hasConflict } = useAuth();
+  const { user, profile, logout, topUpCredits, hasConflict, masterData, conflicts } = useAuth();
   const [showMenu, setShowMenu] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const isDev = import.meta.env.DEV;
@@ -13,9 +13,12 @@ const Header: React.FC = () => {
 
   // Use environment-aware URL for ecosystem navigation
   const TOOL_URL = import.meta.env.VITE_PROMPTTOOL_URL || 'https://prompttool-v0.web.app';
+  const RESOURCES_URL = import.meta.env.VITE_PROMPTRESOURCES_URL || 'http://localhost:3002';
+  const THIS_APP_URL = import.meta.env.VITE_APP_URL || 'http://localhost:5173';
+  const pricingUrl = `${RESOURCES_URL}/pricing?returnUrl=${encodeURIComponent(THIS_APP_URL)}`;
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 px-6 py-4">
+    <header className="fixed top-0 left-0 right-0 z-50 px-6 h-[72px] flex items-center">
       <div className="absolute inset-0 bg-[#0a0a0f]/80 backdrop-blur-xl border-b border-white/5 shadow-2xl"></div>
       
       <div className="max-w-7xl mx-auto relative flex items-center justify-between">
@@ -63,10 +66,22 @@ const Header: React.FC = () => {
                 </button>
               )}
 
+              {/* Admin Quick Access - DUAL AUTHORITY CHECK */}
+              {(profile?.role === 'admin' || profile?.role === 'su' || masterData?.role === 'admin' || masterData?.role === 'su') && (
+                <button 
+                  onClick={() => navigate('/admin')}
+                  className={`hidden md:flex items-center gap-2 px-4 py-2 border rounded-2xl transition-all group ${hasConflict && conflicts.some(c => c.includes('Role')) ? 'border-red-500/50 bg-red-500/10' : 'border-primary/20 bg-primary/5 hover:border-primary/50 hover:bg-primary/10'}`}
+                  title={hasConflict ? "Sync Conflict Detected: Click to resolve" : "Administrative Console"}
+                >
+                  <Shield className={`w-3.5 h-3.5 ${hasConflict && conflicts.some(c => c.includes('Role')) ? 'text-red-400 animate-pulse' : 'text-primary'}`} />
+                  <span className="text-[10px] font-black text-white px-1 uppercase tracking-widest">Admin</span>
+                </button>
+              )}
+
               {/* Credit Indicator - Funnel to PromptTool */}
               <div 
                 className="hidden md:flex items-center gap-3 px-4 py-2 bg-white/5 border border-white/10 rounded-2xl hover:border-primary/30 hover:bg-white/10 transition-all cursor-pointer group"
-                onClick={() => window.open(`${TOOL_URL}/pricing`, '_blank')}
+                onClick={() => window.location.href = pricingUrl}
                 title="Top-up credits at PromptTool"
               >
                 <div className="bg-primary/20 p-1.5 rounded-lg group-hover:scale-110 transition-transform">
@@ -88,12 +103,26 @@ const Header: React.FC = () => {
               <div className="relative">
                 <button 
                   onClick={() => setShowMenu(!showMenu)}
-                  className="flex items-center gap-3 p-1.5 bg-white/5 border border-white/10 rounded-full hover:bg-white/10 transition-all backdrop-blur-md"
+                  className="flex items-center gap-3 p-1.5 bg-white/5 border border-white/10 rounded-full hover:bg-white/10 transition-all backdrop-blur-md group"
                 >
-                  <img src={user.photoURL || `https://api.dicebear.com/7.x/shapes/svg?seed=${user.uid}`} className="w-8 h-8 rounded-full border border-white/20" alt="Profile" />
+                  <div className="w-8 h-8 rounded-full border border-white/20 overflow-hidden bg-white/5 flex items-center justify-center">
+                    {(profile?.photoURL || user.photoURL) ? (
+                      <img 
+                        src={profile?.photoURL || user.photoURL || ''} 
+                        className="w-full h-full object-cover" 
+                        alt="Profile" 
+                      />
+                    ) : (
+                      <span className="text-[10px] font-black text-primary">
+                        {(profile?.displayName || user.displayName || 'A')[0].toUpperCase()}
+                      </span>
+                    )}
+                  </div>
                   <div className="pr-2 hidden sm:block text-left">
-                    <p className="text-[10px] font-black text-white leading-none capitalize">{profile?.displayName || 'User'}</p>
-                    <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mt-1">{profile?.subscription || 'Ecosystem Native'}</p>
+                    <p className="text-[10px] font-black text-white leading-none capitalize group-hover:text-primary transition-colors">{profile?.displayName || user.displayName || 'Creator'}</p>
+                    <p className="text-[9px] text-gray-500 font-bold uppercase tracking-widest mt-1">
+                      {typeof profile?.subscription === 'string' ? profile.subscription : 'PRO'} NODE
+                    </p>
                   </div>
                 </button>
 
@@ -107,7 +136,7 @@ const Header: React.FC = () => {
                             <div className="flex items-center justify-between">
                                 <span className="text-sm font-black text-white">{profile?.credits ?? 0} Credits</span>
                                 <button 
-                                    onClick={() => window.open(`${TOOL_URL}/pricing`, '_blank')}
+                                    onClick={() => window.location.href = pricingUrl}
                                     className="bg-primary/20 text-primary text-[10px] font-black px-2 py-1 rounded-lg uppercase tracking-widest"
                                 >
                                     Top Up
@@ -132,7 +161,7 @@ const Header: React.FC = () => {
                         <div className="pt-4 border-t border-white/5">
                            {profile?.subscription === 'free' && (
                              <button 
-                                onClick={() => window.open(`${TOOL_URL}/pricing`, '_blank')}
+                                onClick={() => window.location.href = pricingUrl}
                                 className="w-full mb-3 bg-brand-gradient py-3 rounded-xl text-[10px] font-black text-white uppercase tracking-[0.2em] flex items-center justify-center gap-2"
                              >
                                 <ShoppingCart className="w-3.5 h-3.5" /> Unlock PRO Access
