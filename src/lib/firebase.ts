@@ -19,6 +19,7 @@ export const auth = getAuth(app);
 export const db = getFirestore(app, 'promptmaster-spa-db-0');     // Registry Primary
 export const toolDb = getFirestore(app, 'prompttool-db-0');        // Studio Satellite
 export const resourcesDb = getFirestore(app, 'promptresources-db-0'); // Hub Satellite (Source of Truth)
+export const accDb = getFirestore(app, 'promptaccreditation-db-0');   // Sovereign Registry (Compliance Engine)
 
 export const storage = getStorage(app);
 export default app;

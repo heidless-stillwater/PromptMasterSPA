@@ -5,11 +5,7 @@ import {
 } from 'firebase/firestore';
 import { toolDb } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
-import {
-  Image as ImageIcon, LayoutList, Search, Trash2,
-  RefreshCw, Star, Trophy, Layers, X, ChevronDown,
-  Film, Edit3, History as HistoryIcon, AlertCircle
-} from 'lucide-react';
+import { Icons } from './Icons';
 
 // ── Types ──────────────────────────────────────────────────────────
 interface GImage {
@@ -91,29 +87,31 @@ function VariationExplorer({
   return createPortal(
     <div 
       ref={scrollRef}
-      className="fixed inset-0 z-[210] overflow-y-auto bg-black/95 backdrop-blur-3xl" 
+      className="fixed inset-0 z-[210] overflow-y-auto bg-[#0a0a0f]/98 backdrop-blur-3xl" 
       onClick={onClose}
     >
       <div className="min-h-screen w-full flex flex-col p-6 md:p-12" onClick={e => e.stopPropagation()}>
         {/* Header Area */}
         <div className="max-w-7xl w-full mx-auto flex items-center justify-between mb-12">
-          <div className="space-y-2">
+          <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-2 h-2 rounded-full bg-primary shadow-lg shadow-primary/50 animate-pulse"></div>
-              <span className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Variation Set Explorer</span>
+              <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                 <Icons.stack size={16} />
+              </div>
+              <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Variation Set Explorer</span>
             </div>
             <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-white">
               {group[0]?.title || "Neural Generation Set"}
             </h3>
-            <p className="text-xs font-black text-gray-500 uppercase tracking-[0.2em]">
-              Index: <span className="text-white/40">{group[0]?.promptSetID}</span> • {group.length} Fragments
+            <p className="text-[10px] font-black text-indigo-400/40 uppercase tracking-[0.2em]">
+              INDEX: <span className="text-white/60">{group[0]?.promptSetID}</span> <span className="mx-2 text-white/10">|</span> {group.length} ASSETS DETECTED
             </p>
           </div>
           <button 
             onClick={onClose}
-            className="p-5 bg-white/5 hover:bg-red-500/20 hover:text-red-500 rounded-3xl transition-all border border-white/10 group active:scale-90"
+            className="p-5 bg-white/5 hover:bg-rose-500/10 hover:text-rose-500 rounded-3xl transition-all border border-white/10 group active:scale-90"
           >
-            <X className="w-8 h-8 transition-transform group-hover:rotate-90" />
+            <Icons.close className="w-8 h-8 transition-transform group-hover:rotate-90" />
           </button>
         </div>
 
@@ -163,10 +161,10 @@ function Lightbox({
 
   return createPortal(
     <div className="fixed inset-0 z-[1000] overflow-y-auto" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/95 backdrop-blur-3xl pointer-events-none" />
+      <div className="absolute inset-0 bg-[#0a0a0f]/98 backdrop-blur-3xl pointer-events-none" />
       <div className="flex min-h-full items-center justify-center p-4">
         <div
-          className="relative max-w-7xl w-full h-auto max-h-[95vh] flex flex-col md:flex-row items-stretch rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/10 bg-[#0a0a0f]"
+          className="relative max-w-7xl w-full h-auto max-h-[95vh] flex flex-col md:flex-row items-stretch rounded-[2.5rem] overflow-hidden shadow-2xl border border-white/10 bg-[#0a0a0f]"
           onClick={e => e.stopPropagation()}
         >
           {/* Media Side */}
@@ -180,55 +178,63 @@ function Lightbox({
           </div>
 
           {/* Info Side */}
-          <div className="w-full md:w-[400px] border-l border-white/10 p-8 flex flex-col gap-8 bg-[#12121a]/50 backdrop-blur-3xl overflow-y-auto">
+          <div className="w-full md:w-[450px] border-l border-white/5 p-8 flex flex-col gap-8 bg-[#12121a]/50 backdrop-blur-3xl overflow-y-auto">
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-2 h-2 rounded-full bg-primary shadow-lg shadow-primary/50"></div>
-                <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">High-Fidelity Manifest</span>
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                   <Icons.sparkles size={16} />
+                </div>
+                <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Neural Manifest v1.0</span>
               </div>
-              <h3 className="text-2xl font-black text-white uppercase tracking-tighter leading-none">
+              <h3 className="text-3xl font-black text-white uppercase tracking-tighter leading-none">
                 {image.title || "Untitled Fragment"}
               </h3>
-              <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest">{formatDate(image.createdAt)}</p>
+              <p className="text-[10px] font-black text-indigo-400/60 uppercase tracking-widest">{formatDate(image.createdAt)} Registry Sequence</p>
             </div>
 
             <div className="space-y-4">
-              <div className="p-5 bg-white/5 border border-white/5 rounded-2xl space-y-3">
-                <p className="text-[10px] font-black text-gray-600 uppercase tracking-widest">Neural Seed Hash</p>
-                <p className="text-xs text-white/70 leading-relaxed font-medium font-mono break-all">{image.prompt}</p>
+              <div className="p-6 bg-white/[0.03] border border-white/5 rounded-2xl space-y-4 group">
+                <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] group-hover:text-indigo-400 transition-colors">Neural Blueprint Hash</p>
+                <div className="max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
+                   <p className="text-xs text-white/60 leading-relaxed font-medium font-mono break-all">{image.prompt}</p>
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-2">
-                <Layers className="w-4 h-4 text-primary" />
-                <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Quality</p>
-                <p className="text-[10px] font-black text-white uppercase">{image.settings?.quality || 'N/A'}</p>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-3">
+                <Icons.stack className="w-5 h-5 text-indigo-400" />
+                <div className="text-center">
+                   <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Density</p>
+                   <p className="text-[11px] font-black text-white uppercase">{image.settings?.quality || 'Standard'}</p>
+                </div>
               </div>
-              <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-2">
-                <HistoryIcon className="w-4 h-4 text-primary" />
-                <p className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Type</p>
-                <p className="text-[10px] font-black text-white uppercase">{image.settings?.modality || 'Image'}</p>
+              <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-3">
+                <Icons.play className="w-5 h-5 text-indigo-400" />
+                <div className="text-center">
+                   <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Architecture</p>
+                   <p className="text-[11px] font-black text-white uppercase">{image.settings?.modality || 'Image'}</p>
+                </div>
               </div>
             </div>
 
-            <div className="mt-auto space-y-3 pt-6 border-t border-white/5">
+            <div className="mt-auto space-y-3 pt-8 border-t border-white/5">
               {onViewVariation && image.promptSetID && (
                 <button
                   onClick={() => {
                     onViewVariation(image);
                     onClose();
                   }}
-                  className="w-full py-4 bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-3"
+                  className="w-full py-5 bg-indigo-600 text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-2xl hover:bg-indigo-500 active:scale-[0.98] transition-all shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-3"
                 >
-                  <Edit3 className="w-4 h-4" /> View in Workbench
+                  <Icons.edit size={16} /> Update Variations
                 </button>
               )}
               <button
                 onClick={onClose}
-                className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all"
+                className="w-full py-5 bg-white/5 hover:bg-white/10 border border-white/10 text-white/40 hover:text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-2xl transition-all"
               >
-                Close Asset Variation
+                Close Asset Node
               </button>
             </div>
           </div>
@@ -251,29 +257,29 @@ interface ConfirmModalProps {
 function ConfirmationModal({ isOpen, title, message, onConfirm, onCancel, confirmText = "Purge Variation" }: ConfirmModalProps) {
   if (!isOpen) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-md" onClick={onCancel} />
-      <div className="relative w-full max-w-sm bg-[#0a0a0e] border border-white/5 rounded-[2.5rem] p-8 shadow-2xl animate-fade-in-up">
-        <div className="flex flex-col items-center text-center space-y-6">
-          <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center">
-            <AlertCircle className="w-8 h-8 text-red-500" />
+    <div className="fixed inset-0 z-[1001] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-[#0a0a0f]/90 backdrop-blur-xl" onClick={onCancel} />
+      <div className="relative w-full max-w-sm bg-[#12121a] border border-rose-500/20 rounded-[2.5rem] p-10 shadow-2xl animate-fade-in-up">
+        <div className="flex flex-col items-center text-center space-y-8">
+          <div className="w-20 h-20 rounded-3xl bg-rose-500/10 flex items-center justify-center border border-rose-500/20">
+            <Icons.alert className="w-10 h-10 text-rose-500" />
           </div>
-          <div className="space-y-2">
-            <h3 className="text-xl font-black text-white uppercase tracking-wider">{title}</h3>
-            <p className="text-[10px] leading-relaxed text-gray-500 font-bold uppercase tracking-widest px-4">{message}</p>
+          <div className="space-y-3">
+            <h3 className="text-2xl font-black text-white uppercase tracking-tighter leading-none">{title}</h3>
+            <p className="text-[10px] leading-relaxed text-white/30 font-black uppercase tracking-widest px-4">{message}</p>
           </div>
-          <div className="w-full flex flex-col gap-3 pt-2">
+          <div className="w-full flex flex-col gap-4">
             <button
               onClick={onConfirm}
-              className="w-full py-4 bg-red-500 hover:bg-red-400 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all shadow-lg shadow-red-500/20"
+              className="w-full py-5 bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-2xl transition-all shadow-xl shadow-rose-600/20 active:scale-95"
             >
               {confirmText}
             </button>
             <button
               onClick={onCancel}
-              className="w-full py-4 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all"
+              className="w-full py-5 bg-white/5 hover:bg-white/10 text-white/40 hover:text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-2xl transition-all active:scale-95"
             >
-              Archive Entry (Cancel)
+              Terminate Action (Cancel)
             </button>
           </div>
         </div>
@@ -304,44 +310,44 @@ function GalleryCard({
   if (viewMode === 'list') {
     return (
       <div
-        className={`flex items-center gap-4 p-3 rounded-xl border transition-all group ${isSelected ? 'bg-primary/10 border-primary/30' : 'bg-white/[0.02] border-white/5 hover:border-white/15'}`}
+        className={`flex items-center gap-4 p-4 rounded-2xl border transition-all group ${isSelected ? 'bg-indigo-500/10 border-indigo-500/30' : 'bg-white/[0.02] border-white/5 hover:border-white/15'}`}
       >
-        {/* checkbox */}
         <button
           onClick={onToggleSelect}
-          className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-all ${isSelected ? 'bg-primary border-primary' : 'border-white/20 hover:border-primary/60'}`}
+          className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 transition-all ${isSelected ? 'bg-indigo-600 border-indigo-400' : 'bg-white/5 border-white/10 hover:border-indigo-400/50'}`}
         >
-          {isSelected && <X className="w-3 h-3 text-white" style={{ transform: 'rotate(45deg)' }} />}
+          {isSelected && <Icons.check size={14} className="text-white" />}
         </button>
-        {/* thumb */}
-        <button onClick={onLightbox} className="shrink-0">
-          <img src={image.imageUrl} alt="" className="w-12 h-12 rounded-lg object-cover" />
+        <button onClick={onLightbox} className="shrink-0 relative group">
+          <img src={image.imageUrl} alt="" className="w-16 h-16 rounded-xl object-cover border border-white/10 group-hover:border-indigo-500/50 transition-all" />
+          <div className="absolute inset-0 bg-indigo-600/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl" />
         </button>
-        {/* info */}
         <div className="flex-1 min-w-0">
-          <p className="text-white text-xs font-bold truncate">{image.title || <span className="italic text-gray-600">Untitled</span>}</p>
-          <p className="text-gray-500 text-[10px] truncate">{image.prompt}</p>
+          <div className="flex items-center gap-3 mb-1">
+             <p className="text-white text-sm font-black uppercase tracking-tighter truncate">{image.title || "Untitled Fragment"}</p>
+             <div className="flex gap-2">
+                {isPublished && <span className="text-[8px] font-black bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full uppercase tracking-widest border border-indigo-500/20">Registry Hub</span>}
+                {image.isExemplar && <span className="text-[8px] font-black bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded-full uppercase tracking-widest border border-amber-500/20">Exemplar</span>}
+             </div>
+          </div>
+          <p className="text-white/20 text-[10px] font-black uppercase tracking-[0.2em] truncate">{image.prompt}</p>
         </div>
-        {/* badges */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-3 shrink-0">
           {onViewVariation && image.promptSetID && (
             <button
               onClick={(e) => { e.stopPropagation(); onViewVariation(image); }}
-              className="px-2 py-0.5 rounded-lg bg-primary/20 text-primary border border-primary/30 text-[8px] font-black uppercase tracking-widest hover:bg-primary/30 transition-all flex items-center gap-1"
+              className="px-4 py-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-black uppercase tracking-widest hover:bg-indigo-500 hover:text-white transition-all flex items-center gap-2"
             >
-              <Edit3 className="w-2.5 h-2.5" /> View/Update
+              <Icons.edit size={12} /> Workbench
             </button>
           )}
-          {isPublished && <span className="badge badge-warning"><Trophy className="w-2.5 h-2.5" /> Hub</span>}
-          {image.isExemplar && <span className="badge badge-info"><Star className="w-2.5 h-2.5" /> Exemplar</span>}
-          {image.sourceImageId && <span className="badge badge-accent"><Layers className="w-2.5 h-2.5" /> Variant</span>}
-          <span className="text-[9px] font-bold text-gray-600">{formatDate(image.createdAt)}</span>
+          <span className="text-[9px] font-black text-white/20 uppercase tracking-[0.2em]">{formatDate(image.createdAt)}</span>
           <button
             onClick={onDelete}
             disabled={deleting}
-            className="opacity-0 group-hover:opacity-100 p-1.5 rounded-lg hover:bg-red-500/20 text-red-500/60 hover:text-red-400 transition-all"
+            className="p-2.5 rounded-xl bg-white/5 hover:bg-rose-500/10 text-white/20 hover:text-rose-500 border border-transparent hover:border-rose-500/20 transition-all"
           >
-            {deleting ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            {deleting ? <Icons.refresh size={16} className="animate-spin" /> : <Icons.trash size={16} />}
           </button>
         </div>
       </div>
@@ -350,90 +356,84 @@ function GalleryCard({
 
   return (
     <div
-      className={`group relative rounded-xl overflow-hidden border-2 transition-all cursor-pointer ${isSelected ? 'border-primary ring-4 ring-primary/10' : 'border-transparent hover:border-white/20'}`}
+      className={`group relative rounded-2xl overflow-hidden border transition-all cursor-pointer bg-white/[0.02] shadow-2xl ${isSelected ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-white/5 hover:border-indigo-500/30'}`}
+      onClick={onLightbox}
     >
       {/* select toggle */}
       <button
         onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
-        className={`absolute top-2 left-2 z-20 w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all shadow-lg bg-black/40 backdrop-blur-sm ${isSelected ? 'bg-primary border-primary scale-110' : 'border-white/30 opacity-0 group-hover:opacity-100 hover:border-white/60'}`}
+        className={`absolute top-3 left-3 z-20 w-8 h-8 rounded-xl border flex items-center justify-center transition-all shadow-xl backdrop-blur-md ${isSelected ? 'bg-indigo-600 border-indigo-400 scale-100' : 'bg-black/40 border-white/20 opacity-0 group-hover:opacity-100 hover:border-indigo-400'}`}
       >
-        {isSelected && <span className="text-white text-[10px] font-black">✓</span>}
+        {isSelected && <Icons.check size={16} className="text-white" />}
       </button>
 
       {/* delete */}
       <button
         onClick={(e) => { e.stopPropagation(); onDelete(); }}
         disabled={deleting}
-        className="absolute top-2 right-2 z-20 w-6 h-6 rounded-lg bg-red-500/90 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-lg"
+        className="absolute top-3 right-3 z-20 w-8 h-8 rounded-xl bg-rose-600/90 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl hover:bg-rose-500"
       >
-        {deleting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+        {deleting ? <Icons.refresh size={14} className="animate-spin" /> : <Icons.trash size={14} />}
       </button>
 
       {/* image */}
-      <button className="block w-full aspect-square bg-white/5" onClick={onLightbox}>
-        <img src={image.imageUrl} alt={image.prompt} className="w-full h-full object-cover" loading="lazy" />
-      </button>
+      <div className="aspect-square bg-white/[0.01] overflow-hidden">
+        <img 
+           src={image.imageUrl} 
+           alt={image.prompt} 
+           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700" 
+           loading="lazy" 
+        />
+      </div>
 
-      {/* overlays */}
-      <div className="absolute top-10 left-2 flex flex-col gap-1 z-10 pointer-events-none">
+      {/* Badge Overlays */}
+      <div className="absolute top-14 left-3 flex flex-col gap-1.5 z-10 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
         {isPublished && (
-          <div className="badge badge-warning">
-            <Trophy className="w-2.5 h-2.5" />
-            <span>Hub</span>
+          <div className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-xl">
+            <Icons.trophy size={10} /> Hub
           </div>
         )}
         {image.isExemplar && (
-          <div className="badge badge-info">
-            <Star className="w-2.5 h-2.5" />
-            <span>Exemplar</span>
-          </div>
-        )}
-        {image.sourceImageId && (
-          <div className="badge badge-accent">
-            <Layers className="w-2.5 h-2.5" />
-            <span>Variant</span>
+          <div className="flex items-center gap-2 bg-amber-500 text-black px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-xl">
+            <Icons.star size={10} /> Exemplar
           </div>
         )}
         {isVideo && (
-          <div className="badge badge-primary">
-            <Film className="w-2.5 h-2.5" />
-            <span>Video</span>
+          <div className="flex items-center gap-2 bg-purple-600 text-white px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-xl">
+            <Icons.play size={10} /> Video
           </div>
         )}
       </div>
 
       {/* quality pill */}
       {image.settings?.quality && (
-        <div className="absolute bottom-8 left-2 z-10 pointer-events-none">
-          <span className="badge badge-primary">
+        <div className="absolute bottom-12 left-3 z-10 pointer-events-none">
+          <span className="bg-black/60 backdrop-blur-md border border-white/10 text-white px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest">
             {qualityLabel[image.settings.quality] ?? image.settings.quality}
           </span>
         </div>
       )}
 
       {/* title bar */}
-      <div className="absolute inset-x-0 bottom-0 p-1.5 bg-black/60 backdrop-blur-sm z-10 flex items-center justify-between">
-        <p className="text-[8px] font-black text-white/70 truncate uppercase tracking-widest flex-1">
-          {image.title || <span className="italic text-white/30">Untitled</span>}
+      <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black via-black/80 to-transparent z-10">
+        <p className="text-[10px] font-black text-white uppercase tracking-tighter truncate">
+          {image.title || "Untitled Fragment"}
         </p>
       </div>
 
-      {/* hover overlay */}
-      <div className="absolute inset-0 bg-black/10 opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col items-center justify-center gap-4 z-[15] backdrop-blur-sm">
+      {/* hover overlay interaction */}
+      <div className="absolute inset-0 bg-indigo-900/40 opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col items-center justify-center gap-4 z-[15] backdrop-blur-[2px]">
         {onViewVariation && image.promptSetID && (
           <button
             onClick={(e) => { e.stopPropagation(); onViewVariation(image); }}
-            className="px-6 py-3 bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-xl hover:scale-105 active:scale-95 transition-all shadow-xl shadow-primary/20 flex items-center gap-2 border border-white/20"
+            className="px-6 py-3 bg-white text-black text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95 flex items-center gap-3"
           >
-            <Edit3 className="w-4 h-4" /> View/Update Variation
+            <Icons.edit size={14} /> Workbench
           </button>
         )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onLightbox(); }}
-          className="text-[9px] font-black text-white/50 hover:text-white uppercase tracking-widest transition-colors"
-        >
-          [ Open Preview ]
-        </button>
+        <div className="flex items-center gap-2 text-[9px] font-black text-white/50 uppercase tracking-[0.3em]">
+           <Icons.external size={12} /> Immersion Preview
+        </div>
       </div>
     </div>
   );
@@ -547,7 +547,7 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
       setImages(prev => prev.filter(i => i.id !== id));
       setSelectedIds(prev => { const s = new Set(prev); s.delete(id); return s; });
     } catch {
-      // silent fail for now – could surface a toast later
+      // silent fail
     } finally {
       setDeletingId(null);
       setConfirmDeleteId(null);
@@ -571,144 +571,152 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
 
   // ── Grid classes ───────────────────────────────────────────────
   const gridClass: Record<ViewMode, string> = {
-    'grid-2': 'grid grid-cols-2 gap-4',
-    'grid-3': 'grid grid-cols-2 sm:grid-cols-3 gap-4',
-    'grid-4': 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4',
-    'list': 'flex flex-col gap-2',
+    'grid-2': 'grid grid-cols-2 gap-6',
+    'grid-3': 'grid grid-cols-2 md:grid-cols-3 gap-6',
+    'grid-4': 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6',
+    'list': 'flex flex-col gap-4',
   };
 
   // ── Render ─────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* ── Toolbar ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-3 items-center p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
-        {/* search */}
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
+      <div className="flex flex-wrap gap-4 items-center p-5 bg-white/[0.02] border border-white/5 rounded-3xl backdrop-blur-3xl">
+        <div className="relative flex-1 min-w-[280px]">
+          <Icons.search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
           <input
             type="text"
-            placeholder="Search gallery…"
+            placeholder="Search Registry Artifacts…"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            className="w-full bg-white/[0.03] border border-white/10 rounded-xl pl-11 pr-4 py-2.5 text-sm text-white placeholder:text-gray-600 outline-none focus:border-primary/50 transition-all"
+            className="w-full bg-black/40 border border-white/5 rounded-2xl pl-12 pr-4 py-3 text-xs text-white placeholder:text-white/10 outline-none focus:border-indigo-500/30 transition-all font-medium"
           />
         </div>
 
-        {/* sort */}
-        <select
-          value={sortMode}
-          onChange={e => { setSortMode(e.target.value as SortMode); setImages([]); setLastDoc(null); }}
-          className="bg-white/[0.03] text-[10px] font-black uppercase tracking-widest text-gray-400 border border-white/10 rounded-xl px-4 py-2.5 outline-none cursor-pointer hover:border-primary/50 transition-all appearance-none"
-        >
-          <option value="newest">Newest First</option>
-          <option value="oldest">Oldest First</option>
-        </select>
+        <div className="flex items-center gap-3">
+           <select
+             value={sortMode}
+             onChange={e => { setSortMode(e.target.value as SortMode); setImages([]); setLastDoc(null); }}
+             className="bg-black/40 text-[10px] font-black uppercase tracking-[0.2em] text-white/40 border border-white/5 rounded-2xl px-5 py-3 outline-none cursor-pointer hover:border-indigo-500/30 transition-all appearance-none"
+           >
+             <option value="newest">Latest Chronology</option>
+             <option value="oldest">Legacy Archives</option>
+           </select>
 
-        <div className="w-px h-12 bg-white/5 mx-2" />
+           <div className="w-px h-8 bg-white/5" />
 
-        {/* Group Toggle */}
-        <button
-          onClick={() => setIsGrouped(!isGrouped)}
-          className={`flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border ${isGrouped ? 'bg-primary/20 text-primary border-primary/30 shadow-lg shadow-primary/10' : 'bg-white/[0.03] text-gray-500 border-white/10 hover:text-white hover:border-white/20'}`}
-          title={isGrouped ? "Ungroup Sets" : "Group by Generation Set"}
-        >
-          <Layers className={`w-3.5 h-3.5 ${isGrouped ? 'animate-pulse' : ''}`} />
-          {isGrouped ? "Set View" : "Individual"}
-        </button>
+           <button
+             onClick={() => setIsGrouped(!isGrouped)}
+             className={`flex items-center gap-2.5 px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border ${isGrouped ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500/20 shadow-xl' : 'bg-black/40 text-white/20 border-white/5 hover:text-white hover:border-white/10'}`}
+           >
+             <Icons.stack className={`w-4 h-4 ${isGrouped ? 'animate-pulse' : ''}`} />
+             {isGrouped ? "Grouped View" : "Individual"}
+           </button>
 
-        <div className="w-px h-6 bg-white/10" />
+           <div className="w-px h-8 bg-white/5" />
 
-        {/* view mode */}
-        <div className="flex items-center gap-1 bg-white/[0.02] border border-white/10 rounded-xl p-1">
-          {(['grid-2', 'grid-3', 'grid-4'] as ViewMode[]).map(m => (
-            <button
-              key={m}
-              onClick={() => setViewMode(m)}
-              className={`px-2.5 py-1.5 rounded-lg text-[9px] font-black transition-all ${viewMode === m ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white'}`}
-            >
-              {m === 'grid-2' ? '2C' : m === 'grid-3' ? '3C' : '4C'}
-            </button>
-          ))}
-          <div className="w-px h-4 bg-white/10 mx-0.5" />
-          <button
-            onClick={() => setViewMode('list')}
-            className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white'}`}
-          >
-            <LayoutList className="w-3.5 h-3.5" />
-          </button>
+           <div className="flex items-center gap-1.5 bg-black/40 border border-white/5 rounded-2xl p-1.5">
+             {(['grid-2', 'grid-3', 'grid-4'] as ViewMode[]).map(m => (
+               <button
+                 key={m}
+                 onClick={() => setViewMode(m)}
+                 className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${viewMode === m ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+               >
+                 {m.split('-')[1]}C
+               </button>
+             ))}
+             <button
+               onClick={() => setViewMode('list')}
+               className={`p-2 rounded-xl transition-all ${viewMode === 'list' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+             >
+               <Icons.list size={16} />
+             </button>
+           </div>
+
+           <button
+             onClick={() => { setImages([]); setLastDoc(null); fetchImages(); }}
+             disabled={loading}
+             className="p-3 bg-black/40 rounded-2xl border border-white/5 text-white/20 hover:text-indigo-400 hover:border-indigo-500/30 transition-all active:scale-95 disabled:opacity-50"
+           >
+             <Icons.refresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+           </button>
         </div>
-
-        {/* refresh */}
-        <button
-          onClick={() => { setImages([]); setLastDoc(null); fetchImages(); }}
-          disabled={loading}
-          className="p-2.5 rounded-xl border border-white/10 text-gray-500 hover:text-white hover:border-white/20 transition-all"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-primary' : ''}`} />
-        </button>
       </div>
 
       {/* ── Selection bar ────────────────────────────────────────── */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-4 px-5 py-3 bg-[#0a0a0e] border border-white/10 rounded-xl animate-fade-in-up">
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-white text-xs font-black shadow-lg shadow-primary/20">
+        <div className="flex items-center gap-5 px-6 py-4 bg-indigo-950/20 border border-indigo-500/20 rounded-[2rem] animate-fade-in-up backdrop-blur-3xl">
+          <div className="flex items-center gap-4">
+            <div className="w-9 h-9 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-sm font-black shadow-xl shadow-indigo-600/30">
               {selectedIds.size}
             </div>
-            <span className="text-xs font-black uppercase tracking-widest text-white/70">Selected</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Artifacts Selected</span>
           </div>
-          <button onClick={selectAll} className="text-[9px] font-black uppercase tracking-widest text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5">
-            Select All
-          </button>
-          <button onClick={clearSelection} className="text-[9px] font-black uppercase tracking-widest text-gray-400 hover:text-white transition-colors px-3 py-1.5 rounded-lg hover:bg-white/5">
-            Clear
-          </button>
-          <div className="w-px h-5 bg-white/10 mx-1" />
+          <div className="flex gap-2">
+             <button onClick={selectAll} className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 hover:text-white transition-colors px-4 py-2 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/5">
+               Select All Domain
+             </button>
+             <button onClick={clearSelection} className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 hover:text-white transition-colors px-4 py-2 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/5">
+               Purge Selection
+             </button>
+          </div>
+          <div className="flex-1" />
           <button
             onClick={() => setConfirmDeleteBatch(true)}
-            className="flex items-center gap-2 px-4 py-1.5 rounded-lg bg-red-500 hover:bg-red-400 text-white text-[9px] font-black uppercase tracking-widest transition-all shadow-lg shadow-red-500/20"
+            className="flex items-center gap-2.5 px-6 py-3 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-black uppercase tracking-[0.3em] transition-all shadow-xl shadow-rose-600/20 active:scale-95 border border-rose-400/20"
           >
-            <Trash2 className="w-3.5 h-3.5" /> Delete Selected
+            <Icons.trash size={16} /> Commit Batch Purge
           </button>
         </div>
       )}
 
       {/* ── Stats bar ────────────────────────────────────────────── */}
       {!loading && (
-        <div className="flex items-center gap-2 text-[9px] font-black text-gray-600 uppercase tracking-widest">
-          <ImageIcon className="w-3.5 h-3.5" />
-          <span>{filtered.length} {filtered.length !== images.length ? `of ${images.length}` : ''} images</span>
+        <div className="flex items-center justify-between px-2">
+           <div className="flex items-center gap-3 text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">
+             <Icons.image size={14} className="text-indigo-400/30" />
+             <span>{filtered.length} Indexed Nodes {filtered.length !== images.length ? `/ Total Archive: ${images.length}` : ''}</span>
+           </div>
+           {isGrouped && (
+             <div className="flex items-center gap-3 text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">
+               <Icons.stack size={14} className="text-indigo-400/30" />
+               <span>{Object.keys(grouped || {}).length} Compressed Sets</span>
+             </div>
+           )}
         </div>
       )}
 
       {/* ── Content ──────────────────────────────────────────────── */}
       {loading ? (
-        <div className="flex flex-col items-center justify-center py-32 space-y-4">
-          <RefreshCw className="w-10 h-10 text-primary/40 animate-spin" />
-          <span className="text-[10px] font-black uppercase tracking-widest text-gray-600">Loading Gallery…</span>
+        <div className="flex flex-col items-center justify-center py-40 gap-6">
+          <div className="relative">
+             <div className="absolute -inset-4 bg-indigo-500/20 blur-2xl rounded-full animate-pulse"></div>
+             <Icons.refresh className="w-12 h-12 text-indigo-400/40 animate-spin relative" />
+          </div>
+          <span className="text-[10px] font-black uppercase tracking-[0.4em] text-white/20">Initialising Asset Handshake…</span>
         </div>
       ) : error ? (
-        <div className="flex flex-col items-center justify-center py-32 space-y-4 border-2 border-dashed border-red-500/20 rounded-2xl">
-          <span className="text-red-400 text-sm font-bold">Failed to load gallery: {error}</span>
-          <button onClick={() => fetchImages()} className="text-[10px] font-black uppercase tracking-widest text-primary hover:underline">Retry</button>
+        <div className="flex flex-col items-center justify-center py-40 gap-6 glass-card border-rose-500/20 bg-rose-500/[0.02]">
+          <Icons.alert className="w-12 h-12 text-rose-500/40" />
+          <p className="text-sm font-black text-rose-500 uppercase tracking-widest text-center px-10">Sync Overload: {error}</p>
+          <button onClick={() => fetchImages()} className="px-8 py-3 bg-rose-500 text-white text-[10px] font-black uppercase tracking-[0.3em] rounded-2xl hover:bg-rose-400 transition-all shadow-xl shadow-rose-500/20">Retry Handshake</button>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-48 border-2 border-dashed border-white/5 rounded-[2.5rem] bg-white/[0.01] space-y-8 text-center animate-fade-in">
+        <div className="flex flex-col items-center justify-center py-60 border border-dashed border-white/5 rounded-[3rem] bg-white/[0.01] gap-8 text-center animate-fade-in group">
           <div className="relative">
-            <div className="absolute -inset-4 bg-primary/20 blur-2xl rounded-full opacity-20"></div>
-            <ImageIcon className="relative w-16 h-16 text-gray-700/40 mx-auto" />
+            <div className="absolute -inset-10 bg-indigo-500/10 blur-[100px] rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000"></div>
+            <Icons.image className="relative w-24 h-24 text-white/5 transition-colors group-hover:text-indigo-500/20" />
           </div>
-          <div className="space-y-2">
-            <p className="text-xs font-black uppercase tracking-[0.3em] text-gray-500">Variation Set Empty</p>
-            <p className="text-[10px] text-gray-700 uppercase tracking-widest font-bold max-w-xs mx-auto leading-relaxed">Generated artifacts may be filtered out by your current set index criteria</p>
+          <div className="space-y-3">
+            <p className="text-sm font-black uppercase tracking-[0.5em] text-white/30">Ecosystem Sparse</p>
+            <p className="text-[11px] text-white/10 uppercase tracking-[0.3em] font-black max-w-sm mx-auto leading-relaxed">Generated Neural Fragments may be outside current filtering parameters</p>
           </div>
           {(searchQuery || !isGrouped) && (
             <button 
               onClick={() => { setSearchQuery(''); setIsGrouped(true); }}
-              className="px-8 py-4 bg-primary/5 hover:bg-primary/10 text-primary text-[10px] font-black uppercase tracking-[0.3em] border border-primary/20 rounded-2xl transition-all shadow-2xl shadow-primary/5 hover:scale-105 active:scale-95 flex items-center gap-3 mx-auto"
+              className="px-10 py-5 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white text-[11px] font-black uppercase tracking-[0.3em] border border-indigo-500/20 rounded-[2rem] transition-all shadow-2xl active:scale-95 flex items-center gap-4 mx-auto"
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Restore All Variations
+              <Icons.refresh size={16} /> Restore Registry Stream
             </button>
           )}
         </div>
@@ -725,7 +733,7 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
                   <div key={key} className="relative group">
                     <GalleryCard
                       image={{...displayImage, publishedToCommunity: hasHubImage}}
-                      viewMode={viewMode === 'list' ? 'grid-4' : viewMode} // Force grid for grouped to show count
+                      viewMode={viewMode === 'list' ? 'grid-4' : viewMode}
                       isSelected={isGroupSelected}
                       onToggleSelect={() => {
                         const ids = groupImages.map(i => i.id);
@@ -749,8 +757,8 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
                       onViewVariation={onViewVariation}
                     />
                     {groupImages.length > 1 && (
-                      <div className="absolute -bottom-2 -right-2 z-20 bg-primary px-2.5 py-1 rounded-lg text-[9px] font-black text-white shadow-xl border border-white/20 pointer-events-none uppercase tracking-widest">
-                        {groupImages.length} Variations
+                      <div className="absolute -bottom-2 -right-2 z-20 bg-indigo-600 px-3 py-1.5 rounded-xl text-[9px] font-black text-white shadow-2xl border border-white/20 pointer-events-none uppercase tracking-widest animate-in slide-in-from-right-2">
+                        {groupImages.length} Fragments
                       </div>
                     )}
                   </div>
@@ -774,14 +782,14 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
           </div>
 
           {hasMore && (
-            <div className="flex justify-center pt-4">
+            <div className="flex justify-center pt-8 pb-12">
               <button
                 onClick={() => fetchImages(true)}
                 disabled={loadingMore}
-                className="flex items-center gap-2 px-6 py-3 bg-white/[0.03] border border-white/10 rounded-xl text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-white hover:border-white/20 transition-all disabled:opacity-50"
+                className="flex items-center gap-3 px-10 py-5 bg-white/[0.02] border border-white/5 rounded-[2rem] text-[11px] font-black uppercase tracking-[0.4em] text-white/30 hover:text-white hover:border-indigo-500/30 hover:bg-indigo-500/5 transition-all disabled:opacity-50 active:scale-95 shadow-2xl"
               >
-                {loadingMore ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                {loadingMore ? 'Loading…' : 'Load More'}
+                {loadingMore ? <Icons.refresh size={16} className="animate-spin text-indigo-400" /> : <Icons.arrowDown size={16} />}
+                {loadingMore ? 'Hydrating Archive…' : 'Deep Archive Sync'}
               </button>
             </div>
           )}

@@ -39,34 +39,15 @@
 }
 
 /* ============================================================
-   STATE-AWARE STYLING (Phase 2 Unification)
+   CINEMATIC DESIGN SYSTEM (Replicated from PromptResources)
    ============================================================ */
-
-.hover-glow {
-  transition: all 0.25s ease;
-}
-
-.hover-glow:hover {
-  box-shadow: 0 0 20px var(--brand-glow), inset 0 0 10px rgba(255,255,255,0.02);
-  border-color: var(--primary);
-  transform: translateY(-2px);
-}
-
-.focus-ring {
-  transition: box-shadow 0.15s ease, border-color 0.15s ease;
-}
-
-.focus-ring:focus, .focus-ring:focus-within {
-  outline: none;
-  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--primary), 0 0 20px var(--brand-glow);
-  border-color: var(--primary);
-}
 
 body {
   @apply bg-background text-foreground antialiased selection:bg-primary/30;
   margin: 0;
   font-family: 'Inter', sans-serif;
   letter-spacing: -0.01em;
+  line-height: 1.6;
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -75,6 +56,7 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: -0.02em;
 }
 
+/* Glass Panels & Surfaces */
 .glass-panel {
   background: var(--gradient-glass, rgba(255, 255, 255, 0.02));
   backdrop-filter: blur(20px);
@@ -83,14 +65,28 @@ h1, h2, h3, h4, h5, h6 {
   box-shadow: var(--shadow-lg, 0 12px 24px rgba(0, 0, 0, 0.5));
 }
 
+.glass-card {
+  @apply bg-white/[0.03] backdrop-blur-2xl border border-white/5 rounded-3xl transition-all duration-300;
+}
+
+.glass-card:hover {
+  @apply border-white/10 bg-white/[0.04] shadow-[0_20px_40px_rgba(0,0,0,0.3)];
+}
+
+/* Typography & Branding */
 .brand-gradient-text {
-  @apply text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent font-black tracking-tighter uppercase;
+  @apply text-transparent bg-clip-text bg-gradient-to-r from-primary to-accent font-black tracking-tighter;
 }
 
 .premium-label {
-    @apply text-[10px] font-black uppercase tracking-[0.2em] text-foreground/50;
+    @apply text-[10px] font-black uppercase tracking-[0.3em] text-foreground/20;
 }
 
+.path-pilling {
+  @apply flex items-center gap-2 text-xs font-bold text-white/60;
+}
+
+/* Motion & Kinetics */
 .animate-spin-slow {
   animation: spin 3s linear infinite;
 }
@@ -100,6 +96,7 @@ h1, h2, h3, h4, h5, h6 {
   to { transform: rotate(360deg); }
 }
 
+/* Badge System */
 .badge {
   @apply inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest transition-all gap-1.5;
 }
@@ -116,12 +113,19 @@ h1, h2, h3, h4, h5, h6 {
   @apply bg-green-500/10 text-green-500 border border-green-500/20;
 }
 
-.badge-warning {
-  @apply bg-yellow-500/10 text-yellow-500 border border-yellow-500/20;
+/* Forms & UI Elements */
+.search-input-cinematic {
+  @apply w-full h-11 pl-12 pr-12 bg-black/40 border border-white/5 rounded-2xl text-white text-sm outline-none focus:border-indigo-500/50 transition-all font-medium tracking-tight;
 }
 
-.badge-info {
-  @apply bg-blue-500/10 text-blue-500 border border-blue-500/20;
+select.cinematic {
+  @apply bg-[#12121a] text-gray-400 border border-white/10 rounded-xl px-4 py-2 outline-none cursor-pointer transition-all duration-300;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 1rem center;
+  background-size: 1em;
+  padding-right: 2.5rem;
 }
 
 /* Custom Scrollbar */
@@ -137,24 +141,3 @@ h1, h2, h3, h4, h5, h6 {
 ::-webkit-scrollbar-thumb {
   @apply bg-white/10 rounded-full hover:bg-primary/40 transition-colors;
 }
-
-/* Custom Dropdown Styling */
-select {
-  @apply bg-[#12121a] text-gray-400 border border-white/10 rounded-xl px-4 py-2 outline-none cursor-pointer transition-all duration-300;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 1rem center;
-  background-size: 1em;
-  padding-right: 2.5rem;
-}
-
-select:hover {
-  @apply bg-white/10 text-white border-primary/30 shadow-lg shadow-primary/10;
-}
-
-select option {
-  @apply bg-[#0d0d12] text-foreground;
-  padding: 12px;
-}
-

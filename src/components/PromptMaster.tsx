@@ -2,37 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { collection, getDocs, addDoc, serverTimestamp, doc, setDoc, query, where, deleteDoc } from 'firebase/firestore';
 import { db, resourcesDb, toolDb } from '../lib/firebase';
-import { 
-  X, 
-  Send, 
-  Sparkles, 
-  RefreshCw, 
-  Zap,
-  Sliders,
-  Edit3,
-  Save,
-  Plus,
-  Database,
-  LayoutGrid,
-  History,
-  Search,
-  List,
-  Maximize2,
-  ZoomIn,
-  UploadCloud,
-  Layers,
-  GalleryVertical,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  Check,
-  Trash2,
-  Copy
-} from 'lucide-react';
+import { Icons } from './Icons';
 import { triggerGeneration, type GenerationProgress } from '../lib/services/prompt-tool';
 import { useAuth } from '../contexts/AuthContext';
 import { useParams } from 'react-router-dom';
-import { RegistryVariations } from './RegistryVariations';
 import PromptToolGallery from './PromptToolGallery';
 
 interface Prompt {
@@ -51,21 +24,21 @@ interface Prompt {
 }
 
 interface Variation {
-  id?: string;         // Firestore document ID for direct deletion
+  id?: string;
   url: string;
   title?: string;
   prompt?: string;
   variables?: Record<string, { value: string; default: string }>;
   uid?: string;
   isOriginal?: boolean;
+  template?: string;
 }
 
 const parseDate = (val: any): number => {
-    if (!val) return Date.now(); // Default to now if missing
+    if (!val) return Date.now();
     if (typeof val.toMillis === 'function') return val.toMillis();
     if (typeof val.seconds === 'number') return val.seconds * 1000;
     if (val instanceof Date) return val.getTime();
-    if (typeof val === 'number') return val;
     return new Date(val).getTime() || Date.now();
 };
 
@@ -78,16 +51,16 @@ const calculateComplexity = (template?: string, prompts?: string[]) => {
 const calculateFreshness = (updatedAt?: number) => {
   if (!updatedAt) return 0.5;
   const ageInDays = (Date.now() - updatedAt) / (1000 * 60 * 60 * 24);
-  return Math.max(0.1, 1 - Math.min(ageInDays / 30, 0.9)); // Degrade over 30 days
+  return Math.max(0.1, 1 - Math.min(ageInDays / 30, 0.9));
 };
 
 const calculateUsageRating = (id: string) => {
-  // Mocking usage rating based on ID hash for persistent "popularity" feel
   let hash = 0;
   for (let i = 0; i < id.length; i++) hash = id.charCodeAt(i) + ((hash << 5) - hash);
-  return 0.3 + (Math.abs(hash % 70) / 100); // 30% to 100% range
+  return 0.3 + (Math.abs(hash % 70) / 100);
 };
 
+const VAR_REGEX = /{{(.*?)}}/g;
 
 interface StatusStep {
   id: string;
@@ -151,10 +124,10 @@ const FALLBACK_EXEMPLARS: Prompt[] = [
 const formatElapsed = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 const StepIcon = ({ stepStatus }: { stepStatus: StatusStep['status'] }) => {
-  if (stepStatus === 'done')    return <CheckCircle2 className="w-4 h-4 text-green-400" />;
-  if (stepStatus === 'active')  return <Loader2 className="w-4 h-4 text-primary animate-spin" />;
-  if (stepStatus === 'error')   return <AlertCircle className="w-4 h-4 text-red-400" />;
-  return <div className="w-4 h-4 rounded-full border border-white/20" />;
+  if (stepStatus === 'done')    return <Icons.check className="w-4 h-4 text-emerald-400" />;
+  if (stepStatus === 'active')  return <Icons.refresh className="w-4 h-4 text-indigo-400 animate-spin" />;
+  if (stepStatus === 'error')   return <Icons.alert className="w-4 h-4 text-rose-400 animate-pulse" />;
+  return <div className="w-4 h-4 rounded-full border border-white/5 bg-white/[0.02]" />;
 };
 
 interface PromptMasterProps {
@@ -168,10 +141,9 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     setActiveTab,
     setConfirmModal
 }) => {
-  const { user, profile, topUpCredits } = useAuth();
+  const { user, profile } = useAuth();
   const { promptId } = useParams();
   
-  // Library State
   const [prompts, setPrompts] = useState<Prompt[]>([]);
   const [exemplars, setExemplars] = useState<Prompt[]>([]);
   const [loadingLibrary, setLoadingLibrary] = useState(true);
@@ -181,17 +153,20 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
   const [gallerySearchQuery, setGallerySearchQuery] = useState('');
   const [initialGalleryAssetId, setInitialGalleryAssetId] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<'az' | 'za' | 'newest' | 'oldest' | 'updated'>('updated');
-  const [viewMode, setViewMode] = useState<'grid-2' | 'grid-3' | 'grid-4' | 'list' | 'extended'>('grid-4');
+  const [viewMode, setViewMode] = useState<'grid-2' | 'grid-3' | 'grid-4' | 'grid-5' | 'grid-6' | 'list'>('grid-4');
+  const [variationsViewMode, setVariationsViewMode] = useState<'grid-3' | 'list'>('grid-3');
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
   const [rawTemplate, setRawTemplate] = useState('');
   const [variables, setVariables] = useState<Record<string, { value: string, default: string }>>({});
   const [resultantPrompt, setResultantPrompt] = useState('');
   const [isEditingBlueprint, setIsEditingBlueprint] = useState(false);
+  const [activeDetailTab, setActiveDetailTab] = useState<'architect' | 'media'>('architect');
+  const [notification, setNotification] = useState<{ id: string; title: string } | null>(null);
+  const [isNewImageSet, setIsNewImageSet] = useState(false);
   
   // Engine State
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loadedVariationsCount, setLoadedVariationsCount] = useState(0);
   const [generatedImages, setGeneratedImages] = useState<Variation[]>([]);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -201,31 +176,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState<string | null>(null);
   const [previewPrompt, setPreviewPrompt] = useState<string | null>(null);
-  const [activeDetailTab, setActiveDetailTab] = useState<'architect' | 'media'>('architect');
-  const [notification, setNotification] = useState<{ id: string; title: string } | null>(null);
-  const [isNewImageSet, setIsNewImageSet] = useState<boolean>(false);
-  const [originalSnapshot, setOriginalSnapshot] = useState<{ url: string | null, title: string, prompt: string } | null>(null);
-  const [variationsViewMode, setVariationsViewMode] = useState<'list' | 'grid-2' | 'grid-3' | 'grid-4' | 'grid-6' | 'grid-8' | 'extended'>(() => {
-    try {
-        const saved = window.localStorage.getItem('promptmaster_variationsViewMode');
-        return (saved as any) || 'grid-3';
-    } catch (e) {
-        return 'grid-3';
-    }
-  });
-
-  useEffect(() => {
-    try {
-        window.localStorage.setItem('promptmaster_variationsViewMode', variationsViewMode);
-    } catch (e) {}
-  }, [variationsViewMode]);
-  const [isVariationsCollapsed, setIsVariationsCollapsed] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
-  const [selectedVariations, setSelectedVariations] = useState<Set<string>>(new Set());
-
-  const VAR_REGEX = /{{(.*?)}}/g;
-
-  // Progress tracking
   const [elapsed, setElapsed] = useState(0);
   const [completion, setCompletion] = useState<CompletionSummary | null>(null);
   const startTimeRef = useRef<number>(0);
@@ -235,7 +185,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
   const fetchPrompts = async () => {
     setLoadingLibrary(true);
     try {
-      // 1. Fetch Blueprints
       const masterSnap = await getDocs(collection(resourcesDb, 'resources'));
       const masterRes = masterSnap.docs.map(doc => {
           const d = doc.data();
@@ -264,27 +213,11 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                   } as Prompt;
               });
       }
-      // 1b. Cleanup "blueprint exemplar" artifacts
-      const filteredPersonal = personal.filter(p => !p?.title?.toLowerCase().startsWith('blueprint exemplar'));
-      const filteredMaster = masterRes.filter(p => !p?.title?.toLowerCase().startsWith('blueprint exemplar'));
-      
-      // Auto-delete leaked system-named blueprints from personal collection
-      if (user) {
-        personal.forEach(async (p) => {
-          if (p.title?.toLowerCase().startsWith('blueprint exemplar')) {
-             try {
-                await deleteDoc(doc(db, 'blueprints', p.id));
-                console.log(`Neural Cleanup: Purged artifact node ${p.id} (${p.title})`);
-             } catch (e) {
-                console.error(`Cleanup Fault: Failed to purge node ${p.id}`, e);
-             }
-          }
-        });
-      }
+      const filteredPersonal = personal;
+      const filteredMaster = masterRes;
 
       setPrompts(filteredMaster.length > 0 ? [...filteredPersonal, ...filteredMaster] : [...filteredPersonal, ...FALLBACK_PROMPTS]);
 
-      // 2. Fetch Exemplars (PromptTool leagueEntries)
       try {
         const toolSnap = await getDocs(collection(toolDb, 'leagueEntries'));
         const toolRes = toolSnap.docs.map(doc => {
@@ -306,7 +239,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
         });
         setExemplars(toolRes.length > 0 ? toolRes : FALLBACK_EXEMPLARS);
       } catch (toolErr) {
-        console.error("Exemplar Node Hydration Failed:", toolErr);
         setExemplars(FALLBACK_EXEMPLARS);
       }
 
@@ -342,13 +274,10 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     const foundKeys = foundTags.map(t => t.key);
 
     setVariables(prev => {
-      // Start from live prev state (avoids stale closure)
       const newVars: Record<string, { value: string, default: string }> = {};
-      // Carry over existing values for keys still present in template
       foundKeys.forEach(k => {
         if (k in prev) newVars[k] = prev[k];
       });
-      // Add or update from template tags
       foundTags.forEach(tag => {
         if (!(tag.key in newVars)) {
           newVars[tag.key] = { value: tag.default, default: tag.default };
@@ -394,23 +323,58 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     return result;
   };
 
+  const handleSetHero = (img: Variation) => {
+      if (!selectedPrompt) return;
+      
+      const variationVars = img.variables || {};
+      const hasMetadata = Object.keys(variationVars).length > 0;
+      
+      // 1. Prepare Architectural State (Fallback to literal prompt for legacy nodes)
+      let finalTemplate = img.template || (hasMetadata ? (selectedPrompt.template || (selectedPrompt.prompts && selectedPrompt.prompts[0])) : img.prompt) || '';
+      
+      const nextVars: Record<string, { value: string, default: string }> = {};
+      
+      // 2. Perform Architectural Default Baking (if metadata exists)
+      if (hasMetadata) {
+          Object.entries(variationVars).forEach(([key, varData]) => {
+              const valToBake = typeof varData === 'object' ? (varData.value || varData.default) : varData;
+              
+              if (valToBake && valToBake !== '<undefined>') {
+                  const regex = new RegExp(`{{${key}(?::.*?)?}}`, 'g');
+                  finalTemplate = finalTemplate.replace(regex, `{{${key}:${valToBake}}}`);
+                  nextVars[key] = { value: valToBake, default: valToBake };
+              } else if (typeof varData === 'object') {
+                  nextVars[key] = varData as { value: string, default: string };
+              }
+          });
+      }
+
+      // 3. Sync visual identity and update local architectural state
+      setSelectedPrompt({ 
+          ...selectedPrompt, 
+          thumbnailUrl: img.url,
+          template: finalTemplate,
+          prompts: [finalTemplate]
+      });
+      
+      setRawTemplate(finalTemplate);
+      // Determine if we need to completely overwrite variables (for legacy raw prompts) or merge
+      setVariables(prev => hasMetadata ? ({ ...prev, ...nextVars }) : nextVars);
+      setSaveStatus('idle');
+      setActiveDetailTab('architect'); // Force UI switch so user sees the sync
+  };
+
   const handleSelect = async (prompt: Prompt) => {
     setSelectedPrompt(prompt);
-    setGeneratedImages([]); // Clear variations on new blueprint selection
-    setVariables({}); // Purge old variable inputs to hydrate from new blueprint
+    setGeneratedImages([]);
+    setVariables({});
     const template = prompt.prompts?.[0] || prompt.template || '';
     setRawTemplate(template);
-    extractVariables(template); // Force immediate extraction for UI hydration
+    extractVariables(template);
     setIsEditingBlueprint(false);
     setActiveDetailTab('architect');
     setLastCommittedPrompt(template);
-    setOriginalSnapshot({
-        url: prompt.thumbnailUrl || null,
-        title: prompt.title,
-        prompt: template
-    });
 
-    // Cross-Ecosystem Variation Hydration
     const lineageID = prompt.promptSetID || prompt.id;
     if (lineageID && user) {
         try {
@@ -420,28 +384,26 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             );
             const snaps = await getDocs(q);
             if (!snaps.empty) {
-                // Perform sort in client memory to bypass index requirements
                 const fetchedVariations = snaps.docs.map(doc => {
                     const data = doc.data();
-                    const createdAt = data.createdAt?.toMillis() || data.timestamp || 0; // handle various schemas
+                    const createdAt = data.createdAt?.toMillis() || data.timestamp || 0;
                     return {
-                        id: doc.id,                          // Store Firestore doc ID for direct deletion
-                        url: data.imageUrl || data.url,      // Handle PromptTool schema nuances
-                        title: data.title || prompt.title,   // fallback to blueprint title
+                        id: doc.id,
+                        url: data.imageUrl || data.url,
+                        title: data.title || prompt.title,
                         prompt: data.prompt,
                         uid: data.userId || data.uid,
                         isOriginal: data.isOriginal || false,
+                        variables: data.variables || {},
+                        template: data.template || '',
                         createdAt
                     };
                 }).filter(v => v.url)
-                  .sort((a, b) => b.createdAt - a.createdAt); // map and sort descending
+                  .sort((a, b) => b.createdAt - a.createdAt);
 
-                // Set hydration array
                 setGeneratedImages(fetchedVariations);
-                setLoadedVariationsCount(fetchedVariations.length);
             } else {
                 setGeneratedImages([]);
-                setLoadedVariationsCount(0);
             }
         } catch (err) {
             console.error("Hydrating PromptTool variations failed:", err);
@@ -450,7 +412,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
   };
 
   const commitSelection = (url: string | null, title: string | undefined, newPrompt: string, vars?: Record<string, { value: string, default: string }>) => {
-      setVariables(vars || {}); // Force inputs to reflect loaded defaults
+      setVariables(vars || {});
       setRawTemplate(newPrompt);
       extractVariables(newPrompt);
       if (url && selectedPrompt) {
@@ -476,33 +438,38 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             title: 'Unsaved Architecture Changes',
             message: 'Your current prompt overrides have not been registered to the ecosystem. Resolving conflict...',
             isDanger: true,
-            onConfirm: () => {}, // unused due to custom buttons
+            onConfirm: () => {},
             customButtons: [
                 {
-                    label: 'Save & Continue',
+                    label: 'Sync & Load',
                     onClick: async () => {
                         await saveBlueprint(false);
                         commitSelection(url, title, newPrompt, vars);
                         setConfirmModal(null);
                     },
-                    className: "col-span-1 py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all shadow-lg bg-primary/80 hover:bg-primary shadow-primary/20"
+                    className: "col-span-1 py-3 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all shadow-lg bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20"
                 },
                 {
-                    label: 'Save & Exit',
+                    label: 'Sync & Exit',
                     onClick: async () => {
                         await saveBlueprint(false);
                         setSelectedPrompt(null);
                         setConfirmModal(null);
                     },
-                    className: "col-span-1 py-3 px-6 rounded-xl border border-white/10 text-xs font-black uppercase tracking-widest text-gray-400 hover:bg-white/5 transition-all"
+                    className: "col-span-1 py-3 px-6 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/40 hover:bg-white/5 transition-all"
                 },
                 {
-                    label: 'Discard & Load Variation',
+                    label: 'Discard & Load',
                     onClick: () => {
                         commitSelection(url, title, newPrompt, vars);
                         setConfirmModal(null);
                     },
-                    className: "col-span-2 mt-2 py-3 px-6 rounded-xl border border-red-500/20 text-[10px] font-black uppercase tracking-[0.2em] text-red-500 hover:bg-red-500/10 transition-all"
+                    className: "col-span-1 py-3 px-6 rounded-xl border border-rose-500/20 text-[10px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500/10 transition-all"
+                },
+                {
+                    label: 'Abort & Return',
+                    onClick: () => setConfirmModal(null),
+                    className: "col-span-1 py-3 px-6 rounded-xl border border-white/5 text-[10px] font-black uppercase tracking-widest text-white/10 hover:text-white/40 hover:bg-white/5 transition-all"
                 }
             ]
         });
@@ -511,50 +478,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
     }
   };
 
-  const clearInput = (key: string) => {
-    setVariables(prev => ({ ...prev, [key]: { ...prev[key], value: '' } }));
-  };
 
-  const useDefault = (key: string) => {
-    setVariables(prev => ({ ...prev, [key]: { ...prev[key], value: prev[key].default } }));
-  };
-
-  const revertBlueprint = () => {
-    if (!selectedPrompt) return;
-    const originalTemplate = selectedPrompt.prompts?.[0] || selectedPrompt.template || '';
-    
-    setConfirmModal({
-        isOpen: true,
-        title: 'Revert Architecture',
-        message: 'Discard all unsaved structural changes and snap back to the last saved blueprint?',
-        isDanger: true,
-        onConfirm: () => {
-            setRawTemplate(originalTemplate);
-            setConfirmModal(null);
-        }
-    });
-  };
-
-  const confirmRevert = () => revertBlueprint();
-
-  const setAsDefault = (key: string) => {
-    const val = variables[key].value;
-    if (!val) return;
-    
-    setConfirmModal({
-        isOpen: true,
-        title: 'Set Architectural Default',
-        message: `Configure "{{${key}:${val}}}" as the permanent default for this blueprint?`,
-        onConfirm: () => {
-            const newTemplate = rawTemplate.replace(
-                new RegExp(`{{${key}(?::.*?)?}}`, 'g'), 
-                `{{${key}:${val}}}`
-            );
-            setRawTemplate(newTemplate);
-            setConfirmModal(null);
-        }
-    });
-  };
 
   const suggestTitle = (text: string) => {
     const regex = /(__DEF__.*?__DEF__|__VAL__.*?__VAL__)/g;
@@ -590,17 +514,28 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
         return new Promise((resolve) => {
           setConfirmModal({
             isOpen: true,
-            title: 'Title Recommendation',
-            message: `Your blueprint needs a name. Recommended: "${suggestion}". Would you like to use this?`,
-            onConfirm: () => {
-                const updated = { ...selectedPrompt, title: suggestion };
-                setSelectedPrompt(updated);
-                setConfirmModal(null);
-                setTimeout(async () => {
-                    const clean = await doSave(asNew, updated);
-                    resolve(clean);
-                }, 10);
-            }
+            title: 'Identity Missing',
+            message: `This architecture is currently un-named. Our neural analyzer suggests "${suggestion}". Deploy with this identity?`,
+            customButtons: [
+                {
+                    label: `Sync as ${suggestion}`,
+                    onClick: () => {
+                        const updated = { ...selectedPrompt, title: suggestion };
+                        setSelectedPrompt(updated);
+                        setConfirmModal(null);
+                        setTimeout(async () => {
+                            const clean = await doSave(asNew, updated);
+                            resolve(clean);
+                        }, 10);
+                    },
+                    className: "col-span-2 py-3 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all shadow-lg bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20"
+                },
+                {
+                    label: 'Abort Initialization',
+                    onClick: () => { setConfirmModal(null); resolve(null); },
+                    className: "col-span-2 mt-2 py-3 px-6 rounded-xl border border-white/5 text-[10px] font-black uppercase tracking-widest text-white/10 hover:text-white/40 hover:bg-white/5 transition-all"
+                }
+            ]
           });
         });
     }
@@ -610,7 +545,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
   const doSave = async (asNew: boolean, promptToSave: Prompt): Promise<string | null> => {
     if (!user || !promptToSave) return null;
     
-    // Explicitly commit current variable values as new defaults in the raw template UI
     const updatedRawTemplate = getCleanPrompt();
     setRawTemplate(updatedRawTemplate);
     
@@ -685,271 +619,90 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
 
     setConfirmModal({
         isOpen: true,
-        title: 'Confirm Decommissioning',
-        message: `This will permanently purge "${promptToDelete.title}" from the ${isPersonal ? 'personal registry' : 'ecosystem node'}. This action is irreversible.`,
+        title: 'Confirm Purge',
+        message: `This will permanently decommissioning "${promptToDelete.title}" from the ${isPersonal ? 'registry' : 'ecosystem'}. This action is irreversible.`,
         isDanger: true,
-        onConfirm: async () => {
-            setSaving(true);
-            try {
-                if (isPersonal) {
-                    await deleteDoc(doc(db, 'blueprints', promptToDelete.id));
-                    // Synchronize Ecosystem: Purge all linked generation artifacts from 'My Gallery'
+        customButtons: [
+            {
+                label: 'Confirm Decommission',
+                onClick: async () => {
+                    setSaving(true);
                     try {
-                        const imagesRef = collection(toolDb, 'users', user.uid, 'images');
-                        
-                        // Strategy 1: Fast ID targeting
-                        const qById = query(imagesRef, where('promptSetID', '==', promptToDelete.id));
-                        const snapById = await getDocs(qById);
-                        
-                        // Strategy 2: URL matching (Legacy fallback for orphaned nodes)
-                        const qByUrl = query(imagesRef, where('imageUrl', '==', promptToDelete.thumbnailUrl));
-                        const snapByUrl = await getDocs(qByUrl);
-                        
-                        const allDocs = [...snapById.docs, ...snapByUrl.docs];
-                        const uniqueRefs = Array.from(new Set(allDocs.map(d => d.id))).map(id => allDocs.find(d => d.id === id)!.ref);
-                        
-                        await Promise.all(uniqueRefs.map(ref => deleteDoc(ref)));
-                        console.log(`Neural Purge: ${uniqueRefs.length} linked gallery nodes decommissioned.`);
-                    } catch (imgErr) {
-                        console.error("Ecosystem Sync Failure: Failed to purge linked gallery nodes:", imgErr);
+                        if (isPersonal) {
+                            await deleteDoc(doc(db, 'blueprints', promptToDelete.id));
+                            try {
+                                const imagesRef = collection(toolDb, 'users', user.uid, 'images');
+                                const qById = query(imagesRef, where('promptSetID', '==', promptToDelete.id));
+                                const snapById = await getDocs(qById);
+                                const qByUrl = query(imagesRef, where('imageUrl', '==', promptToDelete.thumbnailUrl));
+                                const snapByUrl = await getDocs(qByUrl);
+                                const allDocs = [...snapById.docs, ...snapByUrl.docs];
+                                const uniqueRefs = Array.from(new Set(allDocs.map(d => d.id))).map(id => allDocs.find(d => d.id === id)!.ref);
+                                await Promise.all(uniqueRefs.map(ref => deleteDoc(ref)));
+                            } catch (imgErr) {
+                                console.error("Ecosystem Sync Failure: Failed to purge linked gallery nodes:", imgErr);
+                            }
+                        } else {
+                            await deleteDoc(doc(resourcesDb, 'resources', promptToDelete.id));
+                        }
+                        setConfirmModal(null);
+                        if (selectedPrompt?.id === promptToDelete.id) {
+                            setSelectedPrompt(null);
+                        }
+                        await fetchPrompts();
+                    } catch (err: any) {
+                        setError("Decommissioning failed: " + err.message);
+                    } finally {
+                        setSaving(false);
                     }
-                } else {
-                    await deleteDoc(doc(resourcesDb, 'resources', promptToDelete.id));
-                }
-                setConfirmModal(null);
-                if (selectedPrompt?.id === promptToDelete.id) {
-                    setSelectedPrompt(null);
-                }
-                await fetchPrompts();
-            } catch (err: any) {
-                setError("Decommissioning failed: " + err.message);
-            } finally {
-                setSaving(false);
+                },
+                className: "col-span-1 py-3 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all shadow-lg bg-rose-600 hover:bg-rose-500 shadow-rose-600/20"
+            },
+            {
+                label: 'Cancel Operation',
+                onClick: () => setConfirmModal(null),
+                className: "col-span-1 py-3 px-6 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white/40 hover:bg-white/5 transition-all"
             }
-        }
+        ]
     });
   };
 
-  const toggleSelectItem = (id: string) => {
-    setSelectedItems(prev => {
-        const next = new Set(prev);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        return next;
-    });
-  };
 
-  const selectAll = () => {
-    if (selectedItems.size === filteredList.length) {
-        setSelectedItems(new Set());
-    } else {
-        setSelectedItems(new Set(filteredList.map(p => p.id)));
-    }
-  };
-
-  const toggleSelectVariation = (url: string) => {
-    setSelectedVariations(prev => {
-        const next = new Set(prev);
-        if (next.has(url)) next.delete(url);
-        else next.add(url);
-        return next;
-    });
-  };
-
-  const selectAllVariations = () => {
-    if (selectedVariations.size === generatedImages.length) {
-        setSelectedVariations(new Set());
-    } else {
-        setSelectedVariations(new Set(generatedImages.map(img => img.url)));
-    }
-  };
-
-  const handleDeleteSelectedVariations = async (targetUrl?: string) => {
-    const targets = targetUrl ? new Set([targetUrl]) : selectedVariations;
-    if (!selectedPrompt || targets.size === 0) return;
-    
-    setConfirmModal({
-        isOpen: true,
-        isDanger: true,
-        title: 'Purge Protocol',
-        message: `Permanently decommission ${targets.size === 1 ? 'this architectural variation' : `${targets.size} architectural variations`} from the ecosystem history? Resulting node desync is irreversible.`,
-        onConfirm: async () => {
-             setSaving(true);
-             try {
-                if (!user) throw new Error('Authentication required');
-
-                // Build a map of url -> Variation so we can look up doc IDs
-                const variationsByUrl = new Map(generatedImages.map(img => [img.url, img]));
-
-                const deletePromises: Promise<void>[] = [];
-                for (const targetUrl of targets) {
-                    const variation = variationsByUrl.get(targetUrl);
-                    if (!variation) continue;
-
-                    if (variation.id) {
-                        // Fast path: we have the Firestore document ID
-                        const docRef = doc(toolDb, 'users', user.uid, 'images', variation.id);
-                        deletePromises.push(deleteDoc(docRef));
-                    } else {
-                        // Fallback: query by imageUrl in the correct subcollection
-                        const lineageID = selectedPrompt!.promptSetID || selectedPrompt!.id;
-                        const q = query(
-                            collection(toolDb, 'users', user.uid, 'images'),
-                            where('promptSetID', '==', lineageID),
-                            where('imageUrl', '==', targetUrl)
-                        );
-                        const snap = await getDocs(q);
-                        snap.docs.forEach(d => deletePromises.push(deleteDoc(d.ref)));
-                    }
-                }
-
-                if (deletePromises.length === 0) {
-                    throw new Error('No matching variation nodes found in ecosystem. The record may have already been purged.');
-                }
-
-                await Promise.all(deletePromises);
-
-                // Update local state
-                setGeneratedImages(prev => prev.filter(img => !targets.has(img.url)));
-                if (!targetUrl) setSelectedVariations(new Set());
-                else setSelectedVariations(prev => {
-                    const next = new Set(prev);
-                    next.delete(targetUrl);
-                    return next;
-                });
-
-                setConfirmModal(null);
-             } catch (err) {
-                console.error('Purge Failed:', err);
-                setError(`Lineage purge failed: ${(err as Error).message}`);
-             } finally {
-                setSaving(false);
-             }
-        }
-    });
-  };
-
-  const handleBulkDelete = async () => {
-    if (!user || selectedItems.size === 0) return;
-    
-    // Only allow deleting personal records in bulk
-    const itemsToDelete = prompts.filter(p => selectedItems.has(p.id) && p.isPersonal);
-    
-    if (itemsToDelete.length === 0) {
-        setError("Bulk decommissioning is reserved for personal archival nodes.");
-        return;
-    }
-
-    setConfirmModal({
-        isOpen: true,
-        title: 'Bulk Decommissioning',
-        message: `You are about to permanently purge ${itemsToDelete.length} architectures from your personal registry. This action cannot be undone.`,
-        isDanger: true,
-        onConfirm: async () => {
-            setSaving(true);
-            setError(null);
-            try {
-                for (const item of itemsToDelete) {
-                    await deleteDoc(doc(db, 'blueprints', item.id));
-                    // Synchronize Ecosystem: Purge all linked generation artifacts for this node
-                    try {
-                        const q = query(collection(toolDb, 'users', user.uid, 'images'), where('promptSetID', '==', item.id));
-                        const snap = await getDocs(q);
-                        await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
-                    } catch (e) {}
-                }
-                setSelectedItems(new Set());
-                await fetchPrompts();
-                setConfirmModal(null);
-            } catch (err: any) {
-                setError("Bulk deletion failed: " + err.message);
-            } finally {
-                setSaving(false);
-            }
-        }
-    });
-  };
-
-  const alignEcosystem = async () => {
-    if (!user || loadingLibrary || saving) return;
-    setSaving(true);
-    try {
-        // Collect all valid IDs from the local and master neural clusters
-        const validIds = new Set([
-            ...prompts.map(p => p.id),
-            ...exemplars.map(p => p.id),
-            ...exemplars.map(p => p.promptSetID).filter(Boolean) as string[]
-        ]);
-
-        // Scan Gallery for orphaned records
-        const imagesSnap = await getDocs(collection(toolDb, 'users', user.uid, 'images'));
-        const orphans = imagesSnap.docs.filter(doc => {
-            const data = doc.data();
-            const setID = data.promptSetID;
-            if (!setID) return false; // Loose nodes stay preserved for safety
-            return !validIds.has(setID);
-        });
-
-        if (orphans.length === 0) {
-            setError("Ecosystem Aligned: No orphaned neural nodes detected in the gallery vault.");
-        } else {
-            await Promise.all(orphans.map(d => deleteDoc(d.ref)));
-            setError(`Alignment Success: Purged ${orphans.length} orphaned nodes from your gallery.`);
-        }
-    } catch (err: any) {
-        setError("Alignment Failed: " + err.message);
-    } finally {
-        setSaving(false);
-    }
-  };
 
   const handleClone = async (p: Prompt, confirmedTitle?: string) => {
     if (!user) return;
-
     const template = p.prompts?.[0] || p.template || '';
     const baseTitle = confirmedTitle || p.title;
-    
-    // Check for collision if we haven't confirmed a title yet
     if (!confirmedTitle) {
         const existing = prompts.filter(bp => bp.title.toLowerCase().startsWith(p.title.toLowerCase()));
         if (existing.length > 0) {
             const version = existing.length + 1;
             const suggestedTitle = `${p.title} (v${version})`;
-            
             setConfirmModal({
                 isOpen: true,
-                title: 'Architecture Collision',
-                message: `An architecture with a similar identity exists. Suggested version: "${suggestedTitle}". You can also force a duplicate or define a custom workspace ID.`,
+                title: 'Identity Collision',
+                message: `An architecture with a similar identity exists. Protocol suggests: "${suggestedTitle}".`,
                 customButtons: [
                     {
-                        label: `Use ${suggestedTitle}`,
+                        label: `Register as ${suggestedTitle}`,
                         onClick: () => { handleClone(p, suggestedTitle); setConfirmModal(null); },
-                        className: "col-span-2 py-3 px-6 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all shadow-lg bg-primary/80 hover:bg-primary shadow-primary/20 order-1"
+                        className: "col-span-2 py-3 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all shadow-lg bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20"
                     },
                     {
                         label: 'Force Duplicate',
                         onClick: () => { handleClone(p, p.title); setConfirmModal(null); },
-                        className: "col-span-1 py-2 px-6 rounded-xl border border-white/5 text-[9px] font-black uppercase tracking-widest text-gray-600 hover:bg-white/5 transition-all text-center order-2"
-                    },
-                    {
-                        label: 'Custom Architecture ID',
-                        onClick: () => {
-                            const custom = window.prompt("Enter custom architecture ID:", suggestedTitle);
-                            if (custom) { handleClone(p, custom); setConfirmModal(null); }
-                        },
-                        className: "col-span-1 py-2 px-6 rounded-xl border border-white/5 text-[9px] font-black uppercase tracking-widest text-gray-600 hover:bg-white/5 transition-all text-center order-3"
+                        className: "col-span-1 py-3 px-6 rounded-xl border border-white/5 text-[9px] font-black uppercase tracking-widest text-white/40 hover:bg-white/5 transition-all text-center"
                     },
                     {
                         label: 'Abort Operation',
                         onClick: () => setConfirmModal(null),
-                        className: "col-span-2 mt-2 py-3 px-6 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:bg-white/5 transition-all text-center order-4"
+                        className: "col-span-1 py-3 px-6 rounded-xl border border-white/10 text-[9px] font-black uppercase tracking-widest text-white/20 hover:text-white/40 hover:bg-white/5 transition-all text-center"
                     }
                 ]
             });
             return;
         }
     }
-
     setSaving(true);
     setSaveStatus('saving');
     try {
@@ -962,7 +715,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             createdAt: serverTimestamp(),
             updatedAt: serverTimestamp(),
         };
-
         const docRef = await addDoc(collection(db, 'blueprints'), blueprintData);
         handleSelect({
             id: docRef.id,
@@ -971,7 +723,6 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
             createdAt: Date.now(),
             updatedAt: Date.now()
         } as Prompt);
-
     } catch (err: any) {
         setError("Cloning failed: " + err.message);
         setSaveStatus('error');
@@ -982,43 +733,32 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
 
   const handleSubmit = async () => {
     if (!user || !resultantPrompt) return;
-    
-    // Lineage Anchor Protocol: Ensure current variable values are committed as new defaults
     const bakedTemplate = getCleanPrompt();
     setRawTemplate(bakedTemplate);
-    
-    // Silent Save: Persist the architectural baseline to Firestore immediately
-    // This ensuring the 'raw' prompt used for this generation is stored as the new blueprint state
     if (selectedPrompt && !selectedPrompt.isExemplar) {
         doSave(false, { ...selectedPrompt, template: bakedTemplate });
     }
-
     const finalPrompt = bakedTemplate;
-    
     let activePromptSetID = selectedPrompt?.promptSetID || selectedPrompt?.id;
     if (isNewImageSet) {
         activePromptSetID = crypto.randomUUID();
-        setIsNewImageSet(false); // consume intent
+        setIsNewImageSet(false);
         if (selectedPrompt) {
             setSelectedPrompt({ ...selectedPrompt, promptSetID: activePromptSetID });
         }
     }
-
     setSaving(true);
     setError(null);
     startTimeRef.current = Date.now();
     abortControllerRef.current = new AbortController();
-
     timerRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 1000);
-
     try {
         setGenerating(true);
         setStatus(INITIAL_STEPS);
         const idToken = await user.getIdToken();
         const generationVariables = { ...variables };
-
         await triggerGeneration(
           finalPrompt, 
           user.uid, 
@@ -1035,10 +775,9 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                 setProgressMsg(event.message || 'Processing Neural Request...');
              }
              if (event.type === 'image_ready') {
-                  const imageUrl = event.image?.url || event.image?.imageUrl; // Handle both legacy and unified property names
+                  const imageUrl = event.image?.url || event.image?.imageUrl;
                   const imageTitle = (event as any).title || selectedPrompt?.title || 'Generated Variation';
                   const promptUsed = event.message || finalPrompt; 
-
                   if (imageUrl) {
                        setGeneratedImages(prev => [{ url: imageUrl, title: imageTitle, prompt: promptUsed, uid: user.uid, isOriginal: false }, ...prev]);
                   }
@@ -1056,7 +795,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
              }
              if (event.type === 'error') {
                if (event.error?.includes('abort')) {
-                 setError(null); // Silent cancel
+                 setError(null);
                } else {
                  setError(event.error || 'Generation failed at the ecosystem core.');
                }
@@ -1109,770 +848,655 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
        setError("This variation is not linked to a blueprint lineage.");
        return;
     }
-
-    // 1. Find the blueprint/exemplar
     let p = prompts.find(x => x.promptSetID === psid || x.id === psid);
     let tab: 'blueprints' | 'exemplars' = 'blueprints';
-    
     if (!p) {
       p = exemplars.find(x => x.promptSetID === psid || x.id === psid);
       tab = 'exemplars';
     }
-
     if (!p) {
        setError("Associated blueprint node not found in the registry.");
        return;
     }
-
-    // 2. Switch tab and select
     setActiveTab(tab);
     await handleSelect(p);
-
-    // 3. Force variation selection
     handleAssetSelection(image.imageUrl, image.title, image.prompt);
   };
 
   const handleViewInGallery = (image: any) => {
     if (image?.promptSetID) {
       setGallerySearchQuery(image.promptSetID);
+      setActiveTab('gallery');
     }
-    setInitialGalleryAssetId(image?.id || image?.url || image?.imageUrl || null);
-    setActiveTab('gallery');
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-8">
-
+    <div className="w-full space-y-12 pb-24">
        {error && (
-         <div className="fixed top-24 right-8 z-[60] animate-fade-in-right px-6 py-4 bg-red-500/90 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl flex items-center gap-4 max-w-md">
-            <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
-               <AlertCircle className="w-6 h-6 text-white" />
+         <div className="fixed top-28 right-10 z-[1000] animate-fade-in-right px-8 py-5 bg-rose-600/90 backdrop-blur-3xl border border-white/20 rounded-[2rem] shadow-2xl flex items-center gap-6 max-w-md">
+            <div className="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center shrink-0">
+               <Icons.alert className="w-6 h-6 text-white" />
             </div>
             <div className="flex-1">
-               <p className="text-[10px] font-black text-white/50 uppercase tracking-widest mb-1">Ecosystem Error</p>
-               <p className="text-sm font-bold text-white leading-tight">{error}</p>
+               <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.4em] mb-2 leading-none">Neural Desync Detected</p>
+               <p className="text-sm font-bold text-white leading-relaxed">{error}</p>
             </div>
-            <button onClick={() => setError(null)} className="p-2 text-white/40 hover:text-white transition-colors">
-               <X className="w-5 h-5" />
+            <button onClick={() => setError(null)} className="p-3 text-white/30 hover:text-white transition-colors hover:bg-white/5 rounded-xl">
+               <Icons.close className="w-5 h-5" />
             </button>
          </div>
        )}
 
         {!selectedPrompt ? (
-         <div className="space-y-6 animate-fade-in-up">
-           <div className="flex items-center justify-between border-b border-white/5 pb-6 pt-2">
-             <div className="flex gap-10">
-               <button 
-                 onClick={() => setActiveTab('blueprints')}
-                 className={`flex items-center gap-2.5 pb-6 -mb-[25px] text-[10px] font-black uppercase tracking-[0.25em] transition-all border-b-4 ${activeTab === 'blueprints' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
-               >
-                 <LayoutGrid className="w-4 h-4" />
-                 Blueprint Library
-               </button>
-               <button 
-                 onClick={() => setActiveTab('exemplars')}
-                 className={`flex items-center gap-2.5 pb-6 -mb-[25px] text-[10px] font-black uppercase tracking-[0.25em] transition-all border-b-4 ${activeTab === 'exemplars' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
-               >
-                 <History className="w-4 h-4" />
-                 Ecosystem Exemplars
-               </button>
-               <button 
-                 onClick={() => { setGallerySearchQuery(''); setInitialGalleryAssetId(null); setActiveTab('gallery'); }}
-                 className={`flex items-center gap-2.5 pb-6 -mb-[25px] text-[10px] font-black uppercase tracking-[0.25em] transition-all border-b-4 ${activeTab === 'gallery' ? 'text-primary border-primary' : 'text-gray-500 border-transparent hover:text-white'}`}
-               >
-                 <GalleryVertical className="w-4 h-4" />
-                 My Gallery
-               </button>
-             </div>
-             <div className="flex items-center gap-3 px-4 py-2 bg-white/[0.02] rounded-xl border border-white/5 backdrop-blur-xl">
-                <div className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_var(--primary)]"></div>
-                <span className="text-[9px] font-black text-white/40 uppercase tracking-[0.15em] whitespace-nowrap">
-                  Node: <span className="text-gray-400">{activeTab === 'blueprints' ? 'Master Registry' : activeTab === 'exemplars' ? 'Global Cluster' : 'PromptTool Gallery'}</span>
-                </span>
-             </div>
-           </div>
-
-           {/* ── Gallery Tab View ──────────────────────────────── */}
-           {activeTab === 'gallery' && (
-             <div className="pt-4">
-               <PromptToolGallery 
-                 onViewVariation={handleViewVariation} 
-                 initialSearch={gallerySearchQuery}
-                 initialAssetId={initialGalleryAssetId}
-               />
-             </div>
-           )}
-
-          {activeTab !== 'gallery' && (
-            <div className="space-y-0">
-              <div className="flex items-center justify-between py-6 border-b border-white/5 pb-10">
-            <div className="flex items-center gap-6 flex-1">
-                <div className="relative group/search flex-1 max-w-md">
-                    <Search className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within/search:text-primary transition-colors" />
-                    <input
-                        type="text"
-                        placeholder="Search Neural Registry..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="bg-white/[0.03] border border-white/10 rounded-2xl pl-14 pr-6 py-4 text-sm text-white placeholder:text-gray-600 outline-none w-full focus:border-primary/50 focus:bg-white/[0.07] transition-all shadow-inner"
-                    />
-                </div>
-            </div>
-            <div className="flex items-center gap-4">
-                <select
-                    value={sortMode}
-                    onChange={(e) => setSortMode(e.target.value as any)}
-                    className="bg-white/[0.03] text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 border border-white/10 rounded-2xl px-6 py-4 outline-none cursor-pointer hover:border-primary/50 transition-all shadow-inner appearance-none min-w-[180px]"
-                >
-                    <option value="newest">Recently Generated</option>
-                    <option value="updated">Network Updated</option>
-                    <option value="oldest">Legacy Oldest</option>
-                    <option value="az">Index A-Z</option>
-                    <option value="za">Index Z-A</option>
-                </select>
-                <div className="flex items-center bg-white/[0.02] border border-white/10 rounded-2xl p-1.5 gap-1.5 shadow-2xl backdrop-blur-3xl">
-                    <button
-                      onClick={alignEcosystem}
-                      disabled={saving || loadingLibrary}
-                      className={`px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.22em] text-accent hover:bg-accent/10 transition-all flex items-center gap-3 border-r border-white/10 mr-1 group/resync ${saving ? 'animate-pulse' : ''}`}
-                      title="Purge Orphaned Gallery Nodes (Desync Alignment)"
-                    >
-                      <Zap className={`w-3.5 h-3.5 ${saving ? 'animate-spin' : 'group-hover/resync:rotate-12 transition-transform'}`} />
-                      {saving ? 'Aligning...' : 'Resync Now'}
-                    </button>
-                    {activeTab === 'exemplars' && (
-                        <button
-                          onClick={() => fetchPrompts()}
-                          disabled={loadingLibrary}
-                          className="px-5 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.22em] text-primary hover:bg-primary/10 transition-all flex items-center gap-3 border-r border-white/10 mr-1 group/sync"
-                          title="Retrieve Latest from PromptTool"
-                        >
-                          <RefreshCw className={`w-3.5 h-3.5 ${loadingLibrary ? 'animate-spin' : 'group-hover/sync:rotate-180 transition-transform duration-700'}`} />
-                          {loadingLibrary ? 'Syncing...' : 'Sync Latest'}
-                        </button>
-                    )}
-                    {selectedItems.size > 0 && (
-                        <div className="flex items-center gap-6 px-5 border-r border-white/10 mr-1 animate-fade-in-right">
-                           <span className="text-[10px] font-black text-primary uppercase tracking-[0.2em]">{selectedItems.size} Selected</span>
-                           <button 
-                             onClick={handleBulkDelete}
-                             disabled={saving}
-                             className={`text-[10px] font-black uppercase tracking-[0.2em] transition-all flex items-center gap-2 px-3 py-1.5 rounded-lg ${saving ? 'bg-gray-500/10 text-gray-500 cursor-not-allowed' : 'bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white'}`}
-                           >
-                             {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                             {saving ? 'Purging...' : 'Purge'}
-                           </button>
-                        </div>
-                    )}
+         <div className="space-y-4 animate-fade-in-up">
+            <div className="flex items-center justify-between border-b border-white/5 pb-4 pt-0">
+               <div className="flex flex-col gap-1">
+                  <h2 className="text-[10px] font-black text-indigo-400/40 uppercase tracking-[0.5em] leading-none mb-4">Registry Intelligence Explorer</h2>
+                  <div className="flex gap-12">
                     <button 
-                        onClick={selectAll}
-                        className={`px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.22em] transition-all ${selectedItems.size === filteredList.length && filteredList.length > 0 ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'text-gray-500 hover:text-white hover:bg-white/10'}`}
+                      onClick={() => setActiveTab('blueprints')}
+                      className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'blueprints' ? 'text-indigo-400 border-indigo-500' : 'text-white/20 border-transparent hover:text-white'}`}
                     >
-                        {selectedItems.size === filteredList.length && filteredList.length > 0 ? 'Deselect All' : 'Select All'}
+                      <Icons.grid className="w-4 h-4" />
+                      Blueprint Registry
                     </button>
-                    <div className="w-px h-5 bg-white/10 mx-1"></div>
-                    <div className="flex items-center gap-1">
-                        <button 
-                            onClick={() => setViewMode('grid-2')} 
-                            className={`px-3 py-2.5 rounded-xl text-[9px] font-black transition-all duration-500 ${viewMode === 'grid-2' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
-                            title="Detail Grid"
-                        >
-                            2C
-                        </button>
-                        <button 
-                            onClick={() => setViewMode('grid-3')} 
-                            className={`px-3 py-2.5 rounded-xl text-[9px] font-black transition-all duration-500 ${viewMode === 'grid-3' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
-                            title="Balanced Grid"
-                        >
-                            3C
-                        </button>
-                        <button 
-                            onClick={() => setViewMode('grid-4')} 
-                            className={`px-3 py-2.5 rounded-xl text-[9px] font-black transition-all duration-500 ${viewMode === 'grid-4' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
-                            title="Density Grid"
-                        >
-                            4C
-                        </button>
-                        <div className="w-[1px] h-5 bg-white/10 mx-1 self-center" />
-                        <button 
-                            onClick={() => setViewMode('list')} 
-                            className={`p-2.5 rounded-xl transition-all duration-500 ${viewMode === 'list' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
-                            title="List Registry"
-                        >
-                            <List className="w-4 h-4" />
-                        </button>
-                        <button 
-                            onClick={() => setViewMode('extended')} 
-                            className={`p-2.5 rounded-xl transition-all duration-500 ${viewMode === 'extended' ? 'bg-primary text-white shadow-lg shadow-primary/40' : 'text-gray-600 hover:text-white hover:bg-white/10'}`}
-                            title="Architectural Expansion"
-                        >
-                            <Maximize2 className="w-4 h-4" />
-                        </button>
-                    </div>
-                </div>
+                    <button 
+                      onClick={() => setActiveTab('exemplars')}
+                      className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'exemplars' ? 'text-indigo-400 border-indigo-500' : 'text-white/20 border-transparent hover:text-white'}`}
+                    >
+                      <Icons.history className="w-4 h-4" />
+                      Exemplars
+                    </button>
+                    <button 
+                      onClick={() => { setGallerySearchQuery(''); setInitialGalleryAssetId(null); setActiveTab('gallery'); }}
+                      className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'gallery' ? 'text-indigo-400 border-indigo-500' : 'text-white/20 border-transparent hover:text-white'}`}
+                    >
+                      <Icons.image className="w-4 h-4" />
+                      Personal Gallery
+                    </button>
+                  </div>
+               </div>
             </div>
-          </div>
 
-          <section className="relative min-h-[400px]">
-            {loadingLibrary ? (
-              <div className="flex flex-col items-center justify-center py-32 space-y-4 animate-pulse">
-                <RefreshCw className="w-12 h-12 text-primary/40 animate-spin-slow" />
-                <div className="flex flex-col items-center">
-                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-500">Initializing Ecosystem Node</span>
-                  <span className="text-[9px] font-bold text-gray-700 italic mt-1">Hydrating architectural registry...</span>
-                </div>
-              </div>
-            ) : filteredList.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-32 border-2 border-dashed border-white/5 rounded-[2.5rem] bg-white/[0.02]">
-                <Database className="w-12 h-12 text-gray-700 mb-6 opacity-40" />
-                <div className="text-center">
-                  <h3 className="text-xs font-black uppercase tracking-[0.3em] text-gray-500 mb-2">Registry Entry Null</h3>
-                  <p className="text-[10px] font-bold text-gray-700 uppercase tracking-widest">No architectures indexed in this node</p>
-                </div>
+            {activeTab === 'gallery' ? (
+              <div className="pt-6">
+                <PromptToolGallery 
+                  onViewVariation={handleViewVariation} 
+                  initialSearch={gallerySearchQuery}
+                  initialAssetId={initialGalleryAssetId}
+                />
               </div>
             ) : (
-              <div className={
-                viewMode === 'grid-2' ? "grid grid-cols-1 md:grid-cols-2 gap-10" : 
-                viewMode === 'grid-3' ? "grid grid-cols-1 md:grid-cols-3 gap-8" : 
-                viewMode === 'grid-4' ? "grid grid-cols-2 md:grid-cols-4 gap-6" : 
-                "flex flex-col gap-6"
-              }>
-                {filteredList.map((p, i) => (
-                  <div 
-                    key={p.id} 
-                    onClick={() => handleSelect(p)} 
-                    className={`relative group cursor-pointer flex flex-col h-full animate-fade-in-up opacity-0 ${viewMode.startsWith('grid') ? 'h-full' : ''}`}
-                    style={{ animationDelay: `${i * 100}ms` }}
-                  >
-                    {/* Outer Glow Bloom */}
-                    <div className="absolute -inset-1 bg-gradient-to-r from-primary/30 to-accent/30 rounded-[3rem] blur-2xl opacity-0 group-hover:opacity-40 transition-all duration-700 pointer-events-none"></div>
-                    
-                    <div className="relative glass-panel p-8 bg-white/[0.02] hover:bg-white/[0.04] backdrop-blur-3xl transition-all duration-700 border-white/10 group-hover:border-primary/50 flex-1 flex flex-col justify-between shadow-2xl group-hover:shadow-primary/20 overflow-hidden">
-                      
-                      {/* Selection Checkbox */}
-                      <div 
-                        onClick={(e) => { e.stopPropagation(); toggleSelectItem(p.id); }}
-                        className={`absolute top-6 left-6 w-7 h-7 rounded-xl border-2 z-30 flex items-center justify-center transition-all cursor-pointer ${selectedItems.has(p.id) ? 'bg-primary border-primary shadow-lg shadow-primary/20' : 'border-white/10 bg-black/20 opacity-0 group-hover:opacity-100 hover:border-white/30'}`}
-                      >
-                         {selectedItems.has(p.id) && <Check className="w-4 h-4 text-white" />}
-                      </div>
-
-                      {/* Header Badge */}
-                      <div className="absolute top-6 right-6 z-30 flex items-center gap-2 pointer-events-none">
-                        {p.isPersonal && (
-                          <div className="px-3 py-1 bg-white/5 backdrop-blur-md text-[8px] font-black uppercase tracking-[0.2em] rounded-full shadow-lg border border-white/10 text-white/60">
-                            Local Node
-                          </div>
-                        )}
-                        {p.isExemplar && (
-                          <div className="px-3 py-1 bg-primary/20 backdrop-blur-md text-[8px] font-black uppercase tracking-[0.2em] rounded-full shadow-lg border border-primary/40 text-primary animate-pulse">
-                            Alpha Exemplar
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Primary Action (Full Reveal Backdrop) */}
-                      <div className="absolute inset-0 bg-black/95 backdrop-blur-xl opacity-0 group-hover:opacity-100 transition-all duration-700 z-40 flex flex-col items-center justify-center pointer-events-none"></div>
-                      
-                      <div className="flex flex-col gap-8 transition-opacity duration-300 relative z-50">
-                        <div className={`relative shrink-0 overflow-hidden border border-white/5 rounded-3xl bg-black/20 group-hover:border-primary/20 transition-colors shadow-inner flex items-center justify-center p-8 ${viewMode.startsWith('grid') ? 'w-full aspect-square' : 'w-64 h-64'}`}>
-                          <img 
-                            src={p.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${p.id}`} 
-                            className="w-full h-full object-contain transform group-hover:scale-110 transition-transform duration-1000 grayscale-[40%] group-hover:grayscale-0 filter drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]" 
-                            alt="" 
+              <div className="space-y-0">
+                <div className="flex items-center justify-between py-4 border-b border-white/5 mb-6">
+                  <div className="flex items-center gap-8 flex-1">
+                      <div className="relative group/search flex-1 max-w-lg">
+                          <Icons.search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-focus-within/search:text-indigo-400 transition-colors" />
+                          <input
+                              type="text"
+                              placeholder="Search Neural Blueprints..."
+                              value={searchQuery}
+                              onChange={(e) => setSearchQuery(e.target.value)}
+                              className="bg-black/40 border border-white/5 rounded-2xl pl-16 pr-8 py-3 text-xs text-white placeholder:text-white/10 outline-none w-full focus:border-indigo-500/30 focus:bg-black/60 transition-all shadow-2xl font-medium tracking-wide"
                           />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                        </div>
-                        <div className="flex-1 min-w-0 w-full space-y-3 relative z-50 pointer-events-none">
-                           <div>
-                              <p className="text-[8px] font-black text-white/30 uppercase tracking-[0.2em] mb-1 relative z-50">
-                                By {p.authorName || (p.isPersonal ? profile?.displayName : 'Ecosystem Architect') || 'Architect'}
-                              </p>
-                              <h3 className={`font-black uppercase truncate transition-colors leading-tight tracking-tight ${!p.title ? "text-gray-500 italic text-xl" : "text-white group-hover:text-primary text-xl"}`}>
-                                {p.title || '<no title>'}
-                              </h3>
-                              
-                              {/* Interaction Nodes below Identity stack */}
-                              <div className="flex flex-col items-center gap-3 mt-8 opacity-0 group-hover:opacity-100 transition-all duration-500 translate-y-4 group-hover:translate-y-0 pointer-events-auto">
-                                 {p.isExemplar && (
-                                    <button 
-                                      onClick={(e) => { e.stopPropagation(); handleClone(p); }}
-                                      className="w-full py-4 bg-white text-black rounded-xl text-[11px] font-black uppercase tracking-[0.3em] transition-all flex items-center justify-center gap-3 hover:scale-105 active:scale-95 shadow-[0_0_30px_rgba(255,255,255,0.2)]"
-                                    >
-                                       <Copy className="w-4 h-4" /> Clone to Library
-                                    </button>
-                                 )}
-                                 
-                                 <div className="flex items-center gap-2 w-full">
-                                    <div 
-                                      onClick={(e) => { e.stopPropagation(); handleSelect(p); }}
-                                      className="flex-1 py-3.5 bg-white/5 hover:bg-white/10 text-white/40 hover:text-white border border-white/10 hover:border-white/20 rounded-xl text-[8px] font-black uppercase tracking-[0.2em] transition-all text-center cursor-pointer active:scale-95"
-                                    >
-                                       Open Architecture
-                                    </div>
+                      </div>
+                  </div>
+                  <div className="flex items-center gap-6">
+                      <button 
+                          onClick={() => fetchPrompts()}
+                          disabled={loadingLibrary}
+                          className="group flex items-center gap-3 px-6 py-4 bg-white/[0.03] border border-white/5 rounded-2xl text-[9px] font-black uppercase tracking-[0.3em] text-white/40 hover:text-indigo-400 hover:bg-indigo-500/10 hover:border-indigo-500/20 transition-all shadow-2xl disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Synchronize with Ecosystem Registry"
+                      >
+                          <Icons.refresh className={`w-3.5 h-3.5 ${loadingLibrary ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-700'}`} />
+                          Sync Registry
+                      </button>
 
-                                    {(p.isPersonal || profile?.role === 'admin' || profile?.role === 'su') && (
-                                       <button 
-                                         onClick={(e) => { e.stopPropagation(); handleDelete(p); }}
-                                         className="w-14 h-14 flex items-center justify-center bg-black/95 hover:bg-red-500/20 text-white/90 hover:text-red-500 border-2 border-white/40 hover:border-red-500 transition-all active:scale-95 shadow-[0_0_30px_rgba(255,0,0,0.1)] backdrop-blur-2xl rounded-2xl"
-                                         title="Purge Protocol"
-                                       >
-                                          <Trash2 className="w-5 h-5" />
-                                       </button>
-                                    )}
-                                 </div>
+                      <div className="flex bg-black/40 p-1 rounded-2xl border border-white/5 shadow-2xl overflow-hidden self-stretch items-center">
+                          <button 
+                              onClick={() => setViewMode('grid-2')}
+                              className={`p-3 rounded-xl transition-all ${viewMode === 'grid-2' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+                              title="Detailed Grid (2)"
+                          >
+                              <Icons.rows className="w-4 h-4" />
+                          </button>
+                          <button 
+                              onClick={() => setViewMode('grid-4')}
+                              className={`p-3 rounded-xl transition-all ${viewMode === 'grid-4' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+                              title="Standard Grid (4)"
+                          >
+                              <Icons.grid className="w-4 h-4" />
+                          </button>
+                          <button 
+                              onClick={() => setViewMode('grid-6')}
+                              className={`p-3 rounded-xl transition-all ${viewMode === 'grid-6' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+                              title="Neural Density (6)"
+                          >
+                              <Icons.menu className="w-4 h-4 opacity-50" />
+                          </button>
+                          <button 
+                              onClick={() => setViewMode('list')}
+                              className={`p-3 rounded-xl transition-all ${viewMode === 'list' ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+                              title="List View"
+                          >
+                              <Icons.list className="w-4 h-4" />
+                          </button>
+                      </div>
+
+                      <div className="relative group">
+                          <select
+                              value={sortMode}
+                              onChange={(e) => setSortMode(e.target.value as any)}
+                              className="bg-black/40 text-[10px] font-black uppercase tracking-[0.3em] text-white/60 border border-white/5 rounded-2xl pl-8 pr-12 py-4 outline-none cursor-pointer hover:border-indigo-500/30 hover:text-white transition-all shadow-2xl appearance-none min-w-[220px]"
+                          >
+                              <option value="newest" className="bg-[#12121a] text-white">Latest Generations</option>
+                              <option value="updated" className="bg-[#12121a] text-white">System Updated</option>
+                              <option value="oldest" className="bg-[#12121a] text-white">Legacy Archives</option>
+                              <option value="az" className="bg-[#12121a] text-white">Matrix Primary (A-Z)</option>
+                              <option value="za" className="bg-[#12121a] text-white">Matrix Inverse (Z-A)</option>
+                          </select>
+                          <Icons.chevronDown className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-hover:text-white transition-colors pointer-events-none" />
+                      </div>
+                  </div>
+                </div>
+
+                <section className="relative min-h-[50vh]">
+                  {loadingLibrary ? (
+                    <div className="flex flex-col items-center justify-center py-40 space-y-6 animate-pulse">
+                      <div className="w-24 h-24 rounded-[3rem] bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center shadow-2xl relative">
+                         <div className="absolute inset-0 bg-indigo-500/10 blur-3xl rounded-full"></div>
+                         <Icons.refresh className="w-10 h-10 text-indigo-400 animate-spin-slow relative" />
+                      </div>
+                    </div>
+                  ) : filteredList.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-40 border-2 border-dashed border-white/5 rounded-[4rem] bg-black/20 backdrop-blur-3xl animate-fade-in shadow-2xl">
+                      <div className="w-24 h-24 rounded-[3rem] bg-white/5 flex items-center justify-center mb-8 border border-white/5">
+                         <Icons.database className="w-10 h-10 text-white/10" />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className={
+                      viewMode === 'grid-2' ? 'grid grid-cols-1 md:grid-cols-2 gap-12' : 
+                      viewMode === 'grid-3' ? 'grid grid-cols-1 md:grid-cols-3 gap-10' : 
+                      viewMode === 'grid-4' ? 'grid grid-cols-2 md:grid-cols-4 gap-8' : 
+                      viewMode === 'grid-5' ? 'grid grid-cols-2 md:grid-cols-5 gap-6' : 
+                      viewMode === 'grid-6' ? 'grid grid-cols-3 md:grid-cols-6 gap-4' : 
+                      'flex flex-col gap-8'
+                    }>
+                        {filteredList.map((p, i) => (
+                          <div 
+                            key={p.id} 
+                            onClick={() => handleSelect(p)} 
+                            className={`resource-card group hover-glow bg-[#12121a]/60 backdrop-blur-md shadow-2xl cursor-pointer animate-fade-in-up transition-all duration-700 hover:-translate-y-1 overflow-hidden 
+                              ${viewMode === 'list' ? 'flex flex-row items-center p-5 rounded-3xl gap-8 border border-white/5' : 'flex flex-col h-full rounded-[2.5rem]'}`}
+                            style={{ animationDelay: `${i * 100}ms` }}
+                          >
+                            {/* Thumbnail Section */}
+                            <div className={`relative overflow-hidden shrink-0 bg-black/40 
+                              ${viewMode === 'list' ? 'w-24 h-24 rounded-2xl shadow-xl' : 'aspect-square'}`}>
+                              <img 
+                                src={p.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${p.id}`} 
+                                className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" 
+                                alt={p.title || 'Inception Blueprint'} 
+                              />
+                              
+                              {/* Badge Overlays (Grid only) */}
+                              {viewMode !== 'list' && (viewMode !== 'grid-6') && (
+                                <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
+                                  <span className={`px-3 py-1 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-[8px] font-black uppercase tracking-widest text-white/80 flex items-center gap-2`}>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                                    {p.isExemplar ? 'System Exemplar' : 'Neural Blueprint'}
+                                  </span>
+                                  <span className="px-3 py-1 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-[8px] font-black uppercase tracking-widest text-indigo-400 flex items-center gap-2">
+                                    <Icons.zap size={10} />
+                                    {Math.round(calculateComplexity(p.template, p.prompts) * 100)}% COMPLEXITY
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Action Overlays - Hover only */}
+                              <div className={`absolute ${viewMode === 'list' ? 'inset-0 flex items-center justify-center' : 'bottom-4 right-4 translate-y-2 group-hover:translate-y-0'} z-10 opacity-0 group-hover:opacity-100 transition-all`}>
+                                <div className={`p-3 bg-indigo-600/80 hover:bg-indigo-600 text-white border border-indigo-500/30 backdrop-blur-md rounded-xl shadow-xl transition-all active:scale-95`}>
+                                  <Icons.play size={viewMode === 'list' ? 18 : 14} />
+                                </div>
                               </div>
-                           </div>
-                          <div className="group-hover:opacity-0 transition-opacity duration-300 pointer-events-none">
-                            <p className={`text-[11px] text-gray-500 font-medium leading-relaxed ${viewMode === 'extended' ? '' : 'line-clamp-2'}`}>{p.description || 'No detailed architecture specification provided.'}</p>
-                            
-                            {viewMode === 'extended' && p.template && (
-                               <div className="mt-6 p-5 bg-black/60 rounded-2xl border border-white/5 relative group-hover:border-primary/20 transition-all overflow-hidden">
-                                  <div className="absolute top-0 right-0 px-3 py-1 bg-white/5 text-[7px] font-black uppercase tracking-widest text-white/30 border-l border-b border-white/5 rounded-bl-lg">Blueprint ID</div>
-                                  <p className="text-[10px] text-gray-400 font-mono italic leading-relaxed break-words">{p.template}</p>
-                               </div>
-                            )}
+                            </div>
+
+                            {/* Card Body */}
+                            <div className={`${viewMode === 'list' ? 'flex-1 grid grid-cols-12 items-center gap-8' : (viewMode === 'grid-5' || viewMode === 'grid-6') ? 'p-4 space-y-2 flex-grow border-x border-white/5 flex flex-col' : 'p-8 space-y-4 flex-grow border-x border-white/5 flex flex-col'}`}>
+                              <div className={`${viewMode === 'list' ? 'col-span-4' : 'flex justify-between items-start gap-4'}`}>
+                                <h3 className={`${viewMode === 'list' ? 'text-lg' : (viewMode === 'grid-6') ? 'text-xs' : (viewMode === 'grid-5') ? 'text-sm' : 'text-xl'} font-black text-white group-hover:text-indigo-400 transition-colors line-clamp-1 leading-tight tracking-tight uppercase`}>
+                                  {p.title || 'Inception Blueprint'}
+                                </h3>
+                                {(p.isExemplar && viewMode !== 'list' && viewMode !== 'grid-5' && viewMode !== 'grid-6') && (
+                                  <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-500 rounded-lg shrink-0">
+                                    <Icons.sparkles size={10} />
+                                    <span className="text-[7px] font-black uppercase tracking-widest leading-none">Featured</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className={`${viewMode === 'list' ? 'col-span-4' : ''}`}>
+                                  {(viewMode !== 'grid-6' && viewMode !== 'grid-5') && (
+                                      <p className="text-[11px] font-medium text-white/30 line-clamp-2 leading-relaxed uppercase tracking-wider">
+                                        {p.description || 'Architectural Vision Protocol established for high-fidelity generation and neural mapping.'}
+                                      </p>
+                                  )}
+                              </div>
+
+                              <div className={`${viewMode === 'list' ? 'col-span-3 flex flex-wrap gap-2 justify-center' : 'flex flex-wrap gap-2 pt-2'}`}>
+                                 {p.template && [...p.template.matchAll(VAR_REGEX)].slice(0, viewMode === 'list' ? 2 : (viewMode === 'grid-6') ? 1 : 3).map((match, idx) => (
+                                   <span key={idx} className={`px-3 py-1 bg-white/5 border border-white/10 rounded-lg font-black text-white/20 uppercase tracking-widest ${(viewMode === 'grid-6' || viewMode === 'grid-5') ? 'text-[6px]' : 'text-[8px]'}`}>
+                                     #{match[1].split(':')[0].toLowerCase()}
+                                   </span>
+                                 ))}
+                              </div>
+
+                              <div className={`${viewMode === 'list' ? 'col-span-1 flex justify-end pr-4' : 'mt-auto pt-6 border-t border-white/5 flex items-center justify-between'}`}>
+                                <div className="flex items-center gap-4">
+                                  <div className={`rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 font-black ${(viewMode === 'grid-6' || viewMode === 'grid-5') ? 'w-5 h-5 text-[6px]' : 'w-8 h-8 text-[10px]'}`}>
+                                    {(p.authorName || 'S')[0].toUpperCase()}
+                                  </div>
+                                  {(viewMode !== 'grid-6' && viewMode !== 'grid-5') && (
+                                      <div className="flex flex-col">
+                                        <span className="text-[8px] font-black text-white/20 uppercase tracking-widest leading-none mb-1">Architect</span>
+                                        <span className="text-[10px] font-black text-white uppercase tracking-tighter leading-none">{p.authorName || 'Stillwater'}</span>
+                                      </div>
+                                  )}
+                                </div>
+                                {viewMode !== 'list' && (viewMode !== 'grid-6' && viewMode !== 'grid-5') && (
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-black text-indigo-400/40 uppercase tracking-tighter tabular-nums">
+                                      {new Date(p.updatedAt || p.createdAt || Date.now()).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        </div>
+                        ))}
+                    </div>
+                  )}
+                </section>
+              </div>
+            )}
+         </div>
+        ) : (
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start animate-fade-in-up">
+          <div className="space-y-8">
+            <div className="flex items-center justify-between">
+                <button 
+                      onClick={() => { setSelectedPrompt(null); setActiveTab('blueprints'); }} 
+                      className="text-[9px] font-black text-white/20 hover:text-white flex items-center gap-2 transition-all px-5 py-2.5 bg-white/5 border border-white/5 hover:border-white/10 rounded-2xl w-fit uppercase tracking-[0.3em] group"
+                    >
+                      <Icons.close className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform" /> Back to Registry
+                    </button>
+                
+                <div className="flex bg-black/40 p-1.5 rounded-[1.5rem] border border-white/5 shadow-2xl backdrop-blur-3xl overflow-hidden">
+                   <button 
+                     onClick={() => setActiveDetailTab('architect')}
+                     className={`flex items-center gap-3 px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] transition-all duration-500 ${activeDetailTab === 'architect' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+                   >
+                      <Icons.plus className={`w-3.5 h-3.5 ${activeDetailTab === 'architect' ? 'rotate-45' : ''} transition-transform duration-500`} /> 
+                      Architect
+                   </button>
+                   <button 
+                     onClick={() => setActiveDetailTab('media')}
+                     className={`flex items-center gap-3 px-6 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] transition-all duration-500 ${activeDetailTab === 'media' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+                   >
+                      <Icons.feed className="w-3.5 h-3.5" /> 
+                      Media Vault
+                   </button>
+                </div>
+            </div>
+
+                <div className="relative glass-card p-10 space-y-10 bg-[#12121a]/95 border-white/5 shadow-2xl backdrop-blur-3xl rounded-[3rem]">
+                   <div className="flex flex-col gap-8 border-b border-white/5 pb-10">
+                    <div className="flex flex-col gap-4">
+                      <div className="relative group/title w-full">
+                         <input 
+                             type="text"
+                             value={selectedPrompt?.title || ''}
+                             onChange={(e) => selectedPrompt && setSelectedPrompt({...selectedPrompt, title: e.target.value})}
+                             className="bg-transparent text-3xl font-black text-white outline-none w-full border-b border-white/5 focus:border-indigo-500/50 transition-all pr-24 pb-4 placeholder:text-white/5 tracking-tight"
+                             placeholder="Blueprint Designation..."
+                         />
+                         <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-4">
+                             <Icons.edit3 className="w-5 h-5 text-white/10 group-hover/title:text-indigo-400 transition-colors pointer-events-none" />
+                         </div>
+                      </div>
+                      <div className="flex items-center gap-6">
+                         <div className="flex items-center gap-3 px-4 py-2 bg-white/[0.02] border border-white/5 rounded-xl">
+                            <Icons.database className="w-3.5 h-3.5 text-white/20" />
+                            <span className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em]">Matrix DNA Verified</span>
+                         </div>
                       </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
-            </div>
-          )}
-        </div>
-      ) : (
-        <section className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start animate-fade-in-up opacity-0">
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-               <button 
-                     onClick={async (e) => {
-                       e.stopPropagation();
-                       const cleaned = getCleanPrompt();
-                       const hasTemplateChanges = cleaned !== lastCommittedPrompt;
-                       const hasNewGenerations = generatedImages.length > loadedVariationsCount; 
-                       
-                       if (hasTemplateChanges || hasNewGenerations) {
-                         setConfirmModal({
-                           isOpen: true,
-                           title: 'Unsaved Architectural State',
-                           message: hasTemplateChanges 
-                             ? 'Your vision overrides haven\'t been registered. Do you want to back out and discard these neural adjustments?'
-                             : 'You generated new siblings that haven\'t been committed to the Registry. Back out and discard these nodes?',
-                           isDanger: true,
-                           customButtons: [
-                               {
-                                   label: 'Cancel',
-                                   onClick: () => {
-                                       setConfirmModal(null);
-                                   },
-                                   className: "col-span-1 py-3 px-6 rounded-xl border border-white/10 text-xs font-black uppercase tracking-widest text-gray-400 hover:bg-white/5 transition-all"
-                               },
-                               {
-                                   label: 'Discard & Exit',
-                                   onClick: () => {
-                                       setSelectedPrompt(null);
-                                       setActiveTab('blueprints');
-                                       setConfirmModal(null);
-                                   },
-                                   className: "col-span-1 py-3 px-6 rounded-xl border border-red-500/30 text-xs font-black uppercase tracking-widest text-red-500 hover:bg-red-500/10 transition-all"
-                               },
-                               {
-                                   label: 'Save & Exit',
-                                   onClick: async () => {
-                                       await saveBlueprint(false);
-                                       setSelectedPrompt(null);
-                                       setActiveTab('blueprints');
-                                       setConfirmModal(null);
-                                   },
-                                   className: "col-span-2 py-4 px-6 rounded-xl text-xs font-black uppercase tracking-widest text-white transition-all shadow-lg bg-primary/80 hover:bg-primary shadow-primary/20"
-                               }
-                           ]
-                         });
-                       } else {
-                         setSelectedPrompt(null);
-                         setActiveTab('blueprints');
-                       }
-                     }} 
-                     className="text-[9px] font-black text-gray-500 hover:text-white flex items-center gap-2 transition-all px-4 py-2 bg-white/5 border border-white/10 hover:border-white/20 rounded-xl w-fit uppercase tracking-widest group"
-                   >
-                     <X className="w-3.5 h-3.5 group-hover:rotate-90 transition-transform" /> Back
-                   </button>
-               
-               <div className="flex bg-white/[0.02] p-1 rounded-2xl border border-white/5 shadow-xl backdrop-blur-2xl overflow-hidden">
-                  <button 
-                    onClick={() => setActiveDetailTab('architect')}
-                    className={`flex items-center gap-2.5 px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] transition-all duration-500 ${activeDetailTab === 'architect' ? 'bg-primary text-white shadow-lg shadow-primary/20 border border-white/10' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
-                  >
-                     <Plus className={`w-3.5 h-3.5 ${activeDetailTab === 'architect' ? 'rotate-45' : ''} transition-transform duration-500`} /> 
-                     Architect
-                  </button>
-                  <button 
-                    onClick={() => setActiveDetailTab('media')}
-                    className={`flex items-center gap-2.5 px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-[0.2em] transition-all duration-500 ${activeDetailTab === 'media' ? 'bg-primary text-white shadow-lg shadow-primary/20 border border-white/10' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}
-                  >
-                     <GalleryVertical className="w-3.5 h-3.5" /> 
-                     Media Vault
-                  </button>
-                  {selectedPrompt?.promptSetID && (
-                    <div className="w-[1px] h-4 bg-white/10 mx-1"></div>
-                  )}
-                  {selectedPrompt?.promptSetID && (
-                    <button
-                       onClick={() => handleViewInGallery({ promptSetID: selectedPrompt?.promptSetID, url: previewImageUrl })}
-                       className="flex items-center gap-2 px-6 py-2 text-[9px] font-black uppercase tracking-[0.2em] text-gray-500 hover:text-white hover:bg-white/5 transition-all rounded-xl"
-                       title="Search in Gallery"
-                    >
-                      <GalleryVertical className="w-3.5 h-3.5" />
-                      Gallery
-                    </button>
-                  )}
-               </div>
-            </div>
 
-            <div className="relative group">
-               <div className="absolute -inset-1 bg-gradient-to-br from-primary/20 to-accent/20 rounded-[2rem] blur-xl opacity-30 group-hover:opacity-50 transition-all duration-700 pointer-events-none"></div>
-               <div className="relative glass-panel p-6 space-y-6 bg-background-secondary/95 border-white/5 shadow-2xl backdrop-blur-3xl">
-                 <div className="flex flex-col gap-6 border-b border-white/5 pb-6">
-                   <div className="flex flex-col gap-2">
-                     <div className="relative group/title w-full">
-                        <input 
-                            type="text"
-                            value={selectedPrompt.title}
-                            onChange={(e) => setSelectedPrompt({...selectedPrompt, title: e.target.value})}
-                            className="bg-transparent text-2xl font-black text-white/90 outline-none w-full border-b border-white/5 focus:border-primary/50 transition-all pr-24 pb-1"
-                            placeholder="Blueprint Title..."
-                        />
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-3">
-                            {(selectedPrompt.isPersonal || profile?.role === 'admin' || profile?.role === 'su') && (
-                                <button 
-                                    onClick={() => handleDelete()}
-                                    className="p-2 text-white/10 hover:text-red-500 transition-colors"
-                                    title="Decommission Blueprint"
-                                >
-                                    <Trash2 className="w-5 h-5" />
-                                </button>
-                            )}
-                            <Edit3 className="w-5 h-5 text-white/20 group-hover/title:text-primary transition-colors pointer-events-none" />
-                        </div>
-                     </div>
-                     <div className="flex items-center gap-4">
-                        <button 
-                            onClick={() => {
-                                const suggestion = suggestTitle(resultantPrompt);
-                                setConfirmModal({
-                                    isOpen: true,
-                                    title: 'Architectural Recommendation',
-                                    message: `Would you like to rename this blueprint to "${suggestion}"?`,
-                                    onConfirm: () => {
-                                        setSelectedPrompt({ ...selectedPrompt, title: suggestion });
-                                        setConfirmModal(null);
-                                    }
-                                });
-                            }}
-                            className="flex items-center gap-2 text-[10px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest px-3 py-1.5 bg-primary/10 rounded-lg border border-primary/20"
-                        >
-                            <Sparkles className="w-3 h-3" />
-                            Suggest Architectural Name
-                        </button>
-                        <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em]">Blueprint DNA</span>
-                     </div>
-                   </div>
-                 </div>
-
-                 {activeDetailTab === 'architect' ? (
-                   <div className="space-y-8 animate-fade-in">
-                      <div className="space-y-3">
-                          <div className="flex justify-between items-center px-1">
-                              <label className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Blueprint Mode (Raw Template)</label>
-                              <div className="flex gap-4">
-                                  <button onClick={() => setIsEditingBlueprint(!isEditingBlueprint)} className="text-[9px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest">[ {isEditingBlueprint ? 'Lock Changes' : 'Edit Blueprint'} ]</button>
-                                  <button onClick={confirmRevert} className="text-[9px] font-black text-primary/50 hover:text-primary transition-colors uppercase tracking-widest">[ Revert Blueprint ]</button>
+                  {activeDetailTab === 'architect' ? (
+                    <div className="space-y-10 animate-fade-in">
+                       <div className="space-y-5">
+                           <div className="flex justify-between items-center px-1">
+                               <label className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Neural Blueprint Architecture</label>
+                               <div className="flex gap-6">
+                                   <button onClick={() => setIsEditingBlueprint(!isEditingBlueprint)} className="text-[10px] font-black text-indigo-400 hover:text-white transition-colors uppercase tracking-[0.3em] font-mono">{isEditingBlueprint ? '[ LOCK MATRIX ]' : '[ EDIT BLUEPRINT ]'}</button>
+                               </div>
+                           </div>
+                          {isEditingBlueprint ? (
+                              <textarea 
+                                  value={rawTemplate}
+                                  onChange={(e) => setRawTemplate(e.target.value)}
+                                  className="w-full h-52 bg-black/60 border border-indigo-500/30 rounded-3xl p-8 text-base font-mono text-white transition-all resize-y shadow-2xl outline-none leading-relaxed focus:border-indigo-500"
+                                  placeholder="Define your neural matrix here..."
+                                  autoFocus
+                              />
+                          ) : (
+                              <div 
+                                  className="w-full min-h-[12rem] bg-black/40 border border-white/5 rounded-[2rem] p-8 text-base leading-relaxed text-white/60 font-mono shadow-inner overflow-y-auto cursor-pointer hover:border-indigo-500/20 transition-all group/blueprint"
+                                  onClick={() => setIsEditingBlueprint(true)}
+                              >
+                                  {rawTemplate.split(/({{[^}]+}})/).map((part, i) => {
+                                      if (part.startsWith('{{') && part.endsWith('}}')) {
+                                          return (
+                                              <span key={i} className="text-indigo-400 font-black bg-indigo-500/10 px-3 py-1 rounded-xl border border-indigo-500/20 shadow-lg shadow-indigo-900/40 inline-block mx-1 my-1 text-sm">
+                                                  {part}
+                                              </span>
+                                          );
+                                      }
+                                      return part;
+                                  })}
+                                  <div className="mt-8 pt-6 border-t border-white/5 opacity-0 group-hover/blueprint:opacity-100 transition-opacity">
+                                     <span className="text-[10px] font-black text-indigo-400/40 uppercase tracking-[0.4em]">Click to adjust architectural node</span>
+                                  </div>
                               </div>
-                          </div>
-                         {isEditingBlueprint ? (
-                             <textarea 
-                                 value={rawTemplate}
-                                 onChange={(e) => setRawTemplate(e.target.value)}
-                                 className="w-full h-40 bg-black/40 border border-primary/50 rounded-xl p-5 text-[15px] font-mono text-white transition-all resize-y shadow-inner outline-none leading-relaxed"
-                                 placeholder="Define your prompt architecture here..."
-                                 autoFocus
-                             />
-                         ) : (
-                             <div 
-                                 className="w-full min-h-[10rem] bg-black/40 border border-white/5 rounded-2xl p-6 text-[15px] leading-relaxed text-gray-400 font-mono shadow-inner overflow-y-auto cursor-pointer group-hover:border-primary/20 transition-all"
-                                 onClick={() => setIsEditingBlueprint(true)}
-                             >
-                                 {rawTemplate.split(/({{[^}]+}})/).map((part, i) => {
-                                     if (part.startsWith('{{') && part.endsWith('}}')) {
-                                         return (
-                                             <span key={i} className="text-primary font-black bg-primary/10 px-2 py-0.5 rounded-lg border border-primary/20 shadow-lg shadow-primary/10 inline-block mx-0.5 my-0.5 text-[13px]">
-                                                 {part}
-                                             </span>
-                                         );
-                                     }
-                                     return part;
-                                 })}
-                             </div>
-                         )}
-                      </div>
+                          )}
+                       </div>
 
-                      <div className="space-y-6">
-                        {Object.keys(variables).map((v) => (
-                          <div key={v} className="space-y-2">
-                             <div className="flex flex-col gap-2 px-1">
-                                 <label className="text-[10px] font-black tracking-widest text-primary uppercase ml-1 opacity-60">{v}</label>
-                                 <div className="flex items-center gap-4">
-                                     {variables[v].value && variables[v].value !== variables[v].default && (
-                                         <button onClick={() => setAsDefault(v)} className="text-[9px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest">[ Set as Default ]</button>
-                                     )}
-                                     {variables[v].value && variables[v].default && (
-                                         <button onClick={() => useDefault(v)} className="text-[9px] font-black text-white/20 hover:text-primary transition-colors uppercase tracking-widest">[ Use Default ]</button>
-                                     )}
-                                     {variables[v].value && (
-                                         <button onClick={() => clearInput(v)} className="text-[9px] font-black text-white/20 hover:text-red-400 transition-colors uppercase tracking-widest">[ Clear ]</button>
-                                     )}
-                                 </div>
-                             </div>
-                             <input 
-                                 type="text" 
-                                 value={variables[v].value} 
-                                 onChange={(e) => setVariables(prev => ({ ...prev, [v]: { ...prev[v], value: e.target.value } }))} 
-                                 className="w-full bg-[#12121a] border border-white/10 rounded-xl px-5 py-4 outline-none text-white font-medium placeholder:text-white/40 focus:bg-black/80 transition-all shadow-inner" 
-                                 placeholder={variables[v].default ? `Override: ${variables[v].default}...` : `Insert ${v} context...`} 
-                             />
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Sibling Variations Registry */}
-                      <RegistryVariations
-                        generatedImages={generatedImages}
-                        isVariationsCollapsed={isVariationsCollapsed}
-                        selectedVariations={selectedVariations}
-                        variationsViewMode={variationsViewMode}
-                        originalSnapshot={originalSnapshot}
-                        selectedPrompt={selectedPrompt}
-                        profile={profile}
-                        user={user}
-                        setIsVariationsCollapsed={setIsVariationsCollapsed}
-                        handleDeleteSelectedVariations={handleDeleteSelectedVariations}
-                        selectAllVariations={selectAllVariations}
-                        setVariationsViewMode={setVariationsViewMode}
-                        handleAssetSelection={handleAssetSelection}
-                        setPreviewImageUrl={setPreviewImageUrl}
-                        setPreviewTitle={setPreviewTitle}
-                        setPreviewPrompt={setPreviewPrompt}
-                        handleClone={handleClone as any}
-                        toggleSelectVariation={toggleSelectVariation}
-                        onViewInGallery={handleViewInGallery}
-                      />
-
-                       {/* Ecosystem Asset Sync */}
-                       <div className="bg-black/40 border border-white/5 rounded-3xl p-6 relative overflow-hidden group mt-8">
-                         <div className="absolute -inset-10 bg-primary/5 blur-3xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                         <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-4">
-                           <div className="flex items-center gap-4">
-                             <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shrink-0">
-                               <Database className="w-6 h-6 text-gray-700" />
-                             </div>
-                             <div>
-                               <h4 className="text-[10px] font-black text-white uppercase tracking-widest mb-1">Ecosystem Asset Sync</h4>
-                               <p className="text-[9px] font-bold text-gray-500 uppercase tracking-widest leading-relaxed">
-                                 Unified storage node synchronization is active. All media assets linked to this blueprint are cached at the ecosystem edge.
-                               </p>
+                       <div className="space-y-8">
+                         <div className="flex items-center gap-4 mb-2">
+                            <Icons.sliders className="w-4 h-4 text-indigo-400" />
+                            <h4 className="text-[10px] font-black text-white uppercase tracking-[0.4em]">Variable Matrix Parameters</h4>
+                         </div>
+                         {Object.keys(variables).map((v) => (
+                           <div key={v} className="relative group/var space-y-3 bg-white/[0.02] p-6 rounded-2xl border border-white/5 hover:border-indigo-500/20 transition-all">
+                              <div className="flex justify-between items-center px-1">
+                                  <label className="text-[10px] font-black tracking-[0.3em] text-indigo-400/60 uppercase group-hover/var:text-indigo-400 transition-colors">{v}</label>
+                              </div>
+                              <div className="relative">
+                                  <input 
+                                      type="text"
+                                      value={variables[v].value}
+                                      onChange={(e) => setVariables({...variables, [v]: {...variables[v], value: e.target.value}})}
+                                      className="w-full bg-black/40 border border-white/5 rounded-xl px-6 py-4 text-sm text-white focus:border-indigo-500/40 transition-all outline-none placeholder:text-white/5 font-medium"
+                                      placeholder={`Define ${v.toLowerCase()}...`}
+                                  />
+                                  <Icons.edit3 className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/10 pointer-events-none" />
                              </div>
                            </div>
-                           {selectedPrompt.isExemplar && (
-                             <button 
-                               onClick={() => window.open(`http://localhost:3001/community?entryId=${selectedPrompt.id}`, '_blank')}
-                               className="px-5 py-2.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] text-primary transition-all flex items-center gap-2 shrink-0 group/link"
-                             >
-                               <Sparkles className="w-3 h-3 group-hover/link:rotate-12 transition-transform" />
-                               View in Hub
-                             </button>
-                           )}
-                         </div>
+                         ))}
                        </div>
-                    </div>
-                  ) : (
-                   <div className="space-y-8 animate-fade-in">
-                      {/* Blueprint Asset Node */}
-                      <div className="space-y-8">
-                         <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3">
-                               <Layers className="w-5 h-5 text-primary" /> Multi-Layer Asset Node
-                            </h3>
-                            <div className="flex items-center gap-2 px-3 py-1 bg-white/5 rounded-lg border border-white/10">
-                               <div className="w-2 h-2 rounded-full bg-green-500 shadow-lg shadow-green-500/20"></div>
-                               <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">Ecosystem Linked</span>
-                            </div>
-                         </div>
 
-                         <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                            {/* Current Blueprint Image */}
-                             <div className="group relative aspect-square rounded-[2rem] overflow-hidden border border-white/10 hover:border-primary/50 transition-all cursor-zoom-in shadow-xl" onClick={() => handleAssetSelection(selectedPrompt.thumbnailUrl || null, selectedPrompt.title, selectedPrompt.template || selectedPrompt.prompts?.[0])}>
-                                <img src={selectedPrompt.thumbnailUrl || `https://api.dicebear.com/7.x/shapes/svg?seed=${selectedPrompt.id}`} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-700" alt="" />
-                                <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex flex-col gap-2 z-20">
-                                   <div className="flex items-center justify-between pointer-events-auto">
-                                      <span className="text-[8px] font-black text-primary uppercase tracking-widest shrink-0">Current Thumbnail</span>
-                                      <button 
-                                        className="text-[8px] font-black text-white/60 hover:text-white uppercase tracking-widest transition-colors z-30"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            setPreviewImageUrl(selectedPrompt.thumbnailUrl || null);
-                                            setPreviewTitle(selectedPrompt.title || '<no title>');
-                                            setPreviewPrompt(selectedPrompt.template || selectedPrompt.prompts?.[0] || null);
-                                        }}
-                                      >
-                                          [ Expand Image ]
-                                      </button>
-                                   </div>
-                                   <span className="text-[7px] text-gray-400 font-bold uppercase truncate pointer-events-none">{selectedPrompt.title || '<no title>'}</span>
-                                </div>
-                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm pointer-events-none z-10">
-                                   <Edit3 className="w-6 h-6 text-white" />
-                                </div>
-                             </div>
+                        <div className="grid grid-cols-2 gap-4 pt-6">
+                           <button 
+                             onClick={() => saveBlueprint(false)} 
+                             disabled={saving}
+                             className={`py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.4em] transition-all flex items-center justify-center gap-4 shadow-2xl active:scale-95 border border-white/10 ${saving ? 'bg-white/5 text-white/20' : 'bg-white text-black hover:scale-[1.02]'}`}
+                           >
+                              {saving ? <Icons.refresh className="w-4 h-4 animate-spin" /> : <Icons.save className="w-4 h-4" />}
+                              {saving ? 'Syncing...' : 'Commit Registry'}
+                           </button>
+                           <button 
+                              onClick={() => saveBlueprint(true)}
+                              className="py-5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-[11px] font-black uppercase tracking-[0.4em] transition-all flex items-center justify-center gap-4 shadow-[0_20px_50px_rgba(79,70,229,0.3)] hover:scale-[1.02] active:scale-95 border border-white/10"
+                           >
+                              <Icons.plus className="w-4 h-4" /> Clone Node
+                           </button>
+                        </div>
 
-                            {/* Generated Variations */}
-                             {generatedImages.map((img, idx) => (
-                               <div key={idx} className="group relative aspect-square rounded-[2rem] overflow-hidden border-2 border-primary/40 hover:border-primary transition-all cursor-zoom-in shadow-[0_0_30px_rgba(99,102,241,0.2)]" onClick={() => handleAssetSelection(img.url, img.title, img.prompt)}>
-                                  <img src={img.url} className="w-full h-full object-contain group-hover:scale-110 transition-transform duration-700" alt="" />
-                                  <div className="absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent flex flex-col gap-2 z-20">
-                                      <div className="flex items-center justify-between pointer-events-auto">
-                                          <span className="text-[8px] font-black text-primary uppercase shrink-0">VARIATION {generatedImages.length - idx}</span>
-                                          <button 
-                                            className="text-[8px] font-black text-white/60 hover:text-white uppercase tracking-widest transition-colors z-30"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setPreviewImageUrl(img.url);
+                        {generatedImages.length > 0 && (
+                            <div className="pt-10 border-t border-white/5 space-y-6 animate-fade-in">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex flex-col gap-1">
+                                        <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em]">Variations</h4>
+                                        <p className="text-[8px] font-black text-white/20 uppercase tracking-widest font-mono">Registry Index: {generatedImages.length} Variation{generatedImages.length !== 1 ? 's' : ''}</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => setActiveDetailTab('media')}
+                                        className="text-[9px] font-black text-white/20 hover:text-white uppercase tracking-[0.2em] transition-all flex items-center gap-3 bg-white/5 px-4 py-2 rounded-xl border border-white/5 hover:border-white/10 shadow-xl"
+                                    >
+                                        View Full Vault <Icons.feed className="w-3 h-3 text-indigo-400" />
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-4 gap-4">
+                                    {generatedImages.slice(0, 7).map((img, idx) => (
+                                        <div 
+                                            key={idx}
+                                            className={`group relative aspect-square rounded-2xl border transition-all duration-500 overflow-hidden cursor-pointer ${previewImageUrl === img.url ? 'border-indigo-500 shadow-[0_0_30px_rgba(79,70,229,0.4)] ring-2 ring-indigo-500/20' : 'border-white/5 hover:border-white/20 shadow-xl'}`}
+                                            onClick={() => {
+                                                setPreviewImageUrl(img.url || null);
                                                 setPreviewTitle(img.title || '<no title>');
                                                 setPreviewPrompt(img.prompt || null);
                                             }}
-                                          >
-                                              [ Expand Image ]
-                                          </button>
-                                      </div>
-                                      <span className="text-[7px] text-gray-400 font-bold uppercase truncate pointer-events-none">{img.title || '<no title>'}</span>
-                                  </div>
-                                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm pointer-events-none z-10">
-                                     <Edit3 className="w-6 h-6 text-white" />
-                                  </div>
-                               </div>
-                             ))}
+                                        >
+                                            <img src={img.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                                            
+                                            {/* Selection Status Indicator */}
+                                            {previewImageUrl === img.url && (
+                                                <div className="absolute top-3 left-3 z-10 animate-fade-in">
+                                                    <div className="bg-indigo-600 rounded-lg p-1.5 border border-indigo-400/50 shadow-lg">
+                                                        <Icons.check className="w-3 h-3 text-white" />
+                                                    </div>
+                                                </div>
+                                            )}
 
-                            {/* Upload New Asset */}
-                            <div className="aspect-square rounded-[2rem] border-4 border-dashed border-white/10 hover:border-primary/40 flex flex-col items-center justify-center gap-4 group cursor-pointer transition-all hover:bg-primary/5">
-                               <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center group-hover:scale-110 group-hover:bg-primary/20 group-hover:border-primary/40 transition-all">
-                                  <UploadCloud className="w-6 h-6 text-gray-600 group-hover:text-primary transition-colors" />
-                               </div>
-                               <div className="text-center px-4">
-                                  <p className="text-[10px] font-black text-gray-500 uppercase tracking-widest group-hover:text-white transition-colors">Infuse Media</p>
-                                  <p className="text-[8px] font-bold text-gray-700 uppercase mt-1">External Asset Upload</p>
-                               </div>
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col justify-end p-4">
+                                                <p className="text-[7px] font-black text-indigo-400 uppercase tracking-tighter mb-1">Index #{idx + 1}</p>
+                                                <p className="text-[9px] font-bold text-white uppercase tracking-tight truncate leading-none mb-3">{img.title || 'Genetic Variation'}</p>
+                                                
+                                                {/* Action Button: Set as Hero */}
+                                                {selectedPrompt?.thumbnailUrl !== img.url && (
+                                                    <button 
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSetHero(img);
+                                                        }}
+                                                        className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 text-[8px] font-black uppercase tracking-widest text-white rounded-lg border border-indigo-400/30 transition-all transform translate-y-2 group-hover:translate-y-0 shadow-2xl"
+                                                    >
+                                                        Set as Hero
+                                                    </button>
+                                                )}
+                                                {selectedPrompt?.thumbnailUrl === img.url && (
+                                                    <div className="w-full py-2 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[8px] font-black uppercase tracking-widest rounded-lg flex items-center justify-center gap-2">
+                                                        <Icons.star className="w-2.5 h-2.5 fill-current" /> Blueprint Hero
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {generatedImages.length > 7 ? (
+                                        <button 
+                                            onClick={() => setActiveDetailTab('media')}
+                                            className="aspect-square rounded-2xl border border-dashed border-white/10 hover:border-indigo-500/40 flex flex-col items-center justify-center bg-white/[0.02] hover:bg-indigo-500/10 transition-all group"
+                                        >
+                                            <span className="text-2xl font-black text-white/10 group-hover:text-indigo-400 transition-colors">+{generatedImages.length - 7}</span>
+                                            <span className="text-[8px] font-black text-white/5 uppercase tracking-widest mt-1 group-hover:text-indigo-400/60 transition-colors">Nodes</span>
+                                        </button>
+                                    ) : (
+                                        <div className="aspect-square rounded-2xl border-2 border-dashed border-white/5 flex flex-col items-center justify-center gap-2 opacity-40 grayscale">
+                                            <Icons.camera className="w-4 h-4 text-white/20" />
+                                            <span className="text-[7px] font-black text-white/10 uppercase tracking-widest">Awaiting Capture</span>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                         </div>
+                        )}
+                    </div>
+                  ) : (
+                    <div className="space-y-10 animate-fade-in">
+                       <div className="space-y-8">
+                          <div className="flex items-center justify-between border-b border-white/5 pb-6">
+                             <div className="flex flex-col gap-1">
+                                <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em]">Media Vault Distribution</h4>
+                                <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest">{generatedImages.length} Nodes Registered</p>
+                             </div>
+                             <div className="flex items-center gap-4">
+                                <button
+                                  onClick={() => setVariationsViewMode(variationsViewMode === 'list' ? 'grid-3' : 'list')}
+                                  className="p-3 bg-white/5 border border-white/10 rounded-xl text-white/40 hover:text-white transition-all shadow-xl"
+                                >
+                                   {variationsViewMode === 'list' ? <Icons.grid className="w-4 h-4" /> : <Icons.list className="w-4 h-4" />}
+                                </button>
+                             </div>
+                          </div>
 
-                      </div>
-                   </div>
-                 )}
-               </div>
-            </div>
+                          <div className={variationsViewMode.startsWith('grid') ? "grid grid-cols-3 gap-6" : "space-y-4"}>
+                             {generatedImages.map((img, idx) => (
+                                <div 
+                                  key={idx} 
+                                  className={`group relative overflow-hidden rounded-2xl border transition-all duration-500 cursor-pointer ${variationsViewMode.startsWith('grid') ? 'aspect-square' : 'flex items-center gap-6 p-4'} ${previewImageUrl === img.url ? 'border-indigo-500 bg-indigo-500/10' : 'border-white/5 hover:border-white/20 bg-white/[0.02]'}`}
+                                  onClick={() => {
+                                      setPreviewImageUrl(img.url || null);
+                                      setPreviewTitle(img.title || '<no title>');
+                                      setPreviewPrompt(img.prompt || null);
+                                  }}
+                                >
+                                   <div className={variationsViewMode.startsWith('grid') ? "w-full h-full" : "w-16 h-16 shrink-0"}>
+                                      <img src={img.url} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" alt="" />
+                                   </div>
+                                   
+                                   <div className={`flex flex-col gap-2 ${variationsViewMode.startsWith('grid') ? 'absolute inset-x-0 bottom-0 p-4 bg-gradient-to-t from-black/80 to-transparent' : 'flex-1 min-w-0'}`}>
+                                      <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest leading-none mb-1">Index #{idx + 1}</p>
+                                      <h5 className="text-[10px] font-bold text-white uppercase tracking-wider truncate">{img.title || 'Genetic Variation'}</h5>
+                                      
+                                      <div className="flex items-center gap-2 mt-2">
+                                          {selectedPrompt?.thumbnailUrl === img.url ? (
+                                              <div className="flex items-center gap-2 px-2 py-1 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 text-[8px] font-black uppercase tracking-widest rounded-lg">
+                                                  <Icons.star className="w-2.5 h-2.5 fill-current" />
+                                              </div>
+                                          ) : (
+                                              <button 
+                                                  onClick={(e) => { e.stopPropagation(); handleSetHero(img); }}
+                                                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-[8px] font-black uppercase tracking-widest text-white rounded-lg border border-indigo-400/30 transition-all opacity-0 group-hover:opacity-100"
+                                              >
+                                                  Set as Hero
+                                              </button>
+                                          )}
+                                      </div>
+                                   </div>
+
+                                   <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-all translate-y-2 group-hover:translate-y-0">
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); window.open(img.url, '_blank'); }}
+                                        className="p-2 bg-black/60 backdrop-blur-md border border-white/10 rounded-lg text-white hover:bg-indigo-600 transition-all shadow-2xl"
+                                      >
+                                         <Icons.zoomIn className="w-3.5 h-3.5" />
+                                      </button>
+                                   </div>
+                                </div>
+                             ))}
+                             
+                             <div className={`aspect-square rounded-2xl border-2 border-dashed border-white/5 hover:border-indigo-500/30 flex flex-col items-center justify-center gap-3 group transition-all cursor-pointer hover:bg-indigo-500/5 ${variationsViewMode === 'list' ? 'h-16 aspect-auto flex-row px-6' : ''}`}>
+                                <Icons.uploadCloud className="w-6 h-6 text-white/10 group-hover:text-indigo-400 transition-all" />
+                                <div className="text-center">
+                                   <p className="text-[8px] font-black text-white/20 uppercase tracking-widest group-hover:text-white transition-all">Add Node</p>
+                                </div>
+                             </div>
+                          </div>
+                       </div>
+                    </div>
+                  )}
+                </div>
           </div>
 
           <div className="space-y-6 h-full flex flex-col">
             <div className="relative flex-1">
-              <div className="absolute -inset-1 bg-brand-gradient rounded-3xl blur opacity-20"></div>
-              <div className="relative glass-panel p-8 space-y-8 bg-[#1c1c2b]/90 border-white/10 shadow-2xl flex flex-col h-full">
+              <div className="absolute -inset-1 bg-indigo-500/20 rounded-[3rem] blur-2xl opacity-40 pointer-events-none"></div>
+              <div className="relative glass-card p-10 space-y-10 bg-[#12121a]/95 border-white/5 shadow-2xl backdrop-blur-3xl rounded-[3rem] flex flex-col h-full">
                  
-                 {/* Blueprint Control Unit — Action Logic Nodes */}
-                 <div className="grid grid-cols-[1fr,auto] gap-4 pb-6 border-b border-white/10 relative z-20">
-                    <div className="grid grid-cols-2 gap-3">
+                 <div className="grid grid-cols-[1fr,auto] gap-6 pb-8 border-b border-white/5 relative z-20">
+                    <div className="grid grid-cols-2 gap-4">
                         <button 
                             onClick={() => saveBlueprint(false)}
                             disabled={saveStatus !== 'idle'}
-                            className={`flex items-center justify-center gap-2 px-4 py-3 rounded-xl border transition-all font-black uppercase tracking-widest text-[9px] shadow-lg ${
+                            className={`flex items-center justify-center gap-3 px-6 py-4 rounded-xl border transition-all font-black uppercase tracking-[0.2em] text-[10px] shadow-xl active:scale-95 ${
                                 saveStatus === 'success' 
-                                ? 'bg-green-500/20 border-green-500/30 text-green-400' 
+                                ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-400' 
                                 : saveStatus === 'saving'
-                                ? 'bg-primary/20 border-primary/20 text-primary animate-pulse'
-                                : 'bg-primary/80 border-primary/30 text-white hover:bg-primary hover:scale-[1.02]'
+                                ? 'bg-indigo-600/20 border-indigo-500/20 text-indigo-400 animate-pulse'
+                                : 'bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-500 shadow-indigo-600/20'
                             }`}
                         >
-                            <Save className={`w-3.5 h-3.5 ${saveStatus === 'saving' ? 'animate-spin' : ''}`} />
-                            {saveStatus === 'saving' ? 'Persisting...' : saveStatus === 'success' ? 'Saved' : 'Save'}
+                            <Icons.save className={`w-4 h-4 ${saveStatus === 'saving' ? 'animate-spin' : ''}`} />
+                            {saveStatus === 'saving' ? 'Syncing...' : saveStatus === 'success' ? 'Saved' : 'Commit'}
                         </button>
 
                         <button 
                             onClick={() => saveBlueprint(true)}
-                            className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all font-black uppercase tracking-widest text-[9px] hover:scale-[1.02]"
+                            className="flex items-center justify-center gap-3 px-6 py-4 rounded-xl border border-white/5 bg-white/5 text-white/40 hover:text-white hover:bg-white/10 hover:border-white/10 transition-all font-black uppercase tracking-[0.2em] text-[10px] active:scale-95 shadow-xl"
                         >
-                            <Plus className="w-3.5 h-3.5" />
-                            Save New
+                            <Icons.plus className="w-4 h-4" />
+                            Clone
                         </button>
                     </div>
 
                     {(selectedPrompt?.isPersonal || profile?.role === 'admin' || profile?.role === 'su') && (
                         <button 
                             onClick={() => handleDelete()}
-                            className="flex items-center justify-center px-4 py-3 rounded-xl border border-red-500/10 bg-red-500/5 text-red-500/40 hover:text-red-500 hover:bg-red-500/10 transition-all font-black uppercase tracking-widest text-[9px] hover:scale-[1.02]"
-                            title="Decommission Architecture"
+                            className="flex items-center justify-center px-6 py-4 rounded-xl border border-rose-500/10 bg-rose-500/5 text-rose-500/40 hover:text-rose-500 hover:bg-rose-500/10 transition-all font-black uppercase tracking-[0.2em] text-[10px] active:scale-95"
+                            title="Purge Protocol"
                         >
-                            <Trash2 className="w-4 h-4" />
+                            <Icons.delete className="w-4 h-4" />
                         </button>
                     )}
                  </div>
 
-                 {/* Engine Selector — Diagnostic Cockpit */}
-                 <div className="flex flex-wrap items-center gap-3 pb-4 border-b border-white/5">
-                    <div className="flex items-center gap-3 px-4 py-2 bg-[#12121a] rounded-xl border border-white/10 shadow-xl backdrop-blur-md flex-1">
-                       <Zap className="w-4 h-4 text-primary animate-pulse shrink-0" />
-                       <select 
-                           value={engine}
-                           onChange={(e) => setEngine(e.target.value)}
-                           className="bg-transparent text-[10px] font-black text-white uppercase tracking-widest outline-none flex-1 cursor-pointer"
-                       >
-                           <option value="vision-0">Visual Engine 1.0 (Standard)</option>
-                           <option value="architect-1">Architectural 2.0 (High Precision)</option>
-                           <option value="cinematic-3">Cinematic Ultra (Max Fidelity)</option>
-                       </select>
-                    </div>
-                    <div className="flex items-center gap-2 px-3 py-2 bg-black/40 rounded-xl border border-white/5 shadow-inner shrink-0">
-                       <Sliders className="w-3 h-3 text-primary/60" />
-                       <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">
-                           {Object.keys(variables).length} Controls Active
+                 <div className="flex flex-wrap items-center gap-4 pb-8 border-b border-white/5">
+                     <div className="relative group flex-1">
+                        <Icons.zap className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-indigo-400 animate-pulse pointer-events-none z-10" />
+                        <select 
+                            value={engine}
+                            onChange={(e) => setEngine(e.target.value)}
+                            className="w-full bg-black/40 text-[10px] font-black text-white uppercase tracking-[0.3em] border border-white/5 rounded-2xl pl-16 pr-12 py-4 outline-none cursor-pointer hover:border-indigo-500/30 transition-all shadow-2xl appearance-none relative z-0"
+                        >
+                            <option value="vision-0" className="bg-[#12121a] text-white">Visual Engine 1.0 (Standard)</option>
+                            <option value="architect-1" className="bg-[#12121a] text-white">Architectural 2.0 (High Precision)</option>
+                            <option value="cinematic-3" className="bg-[#12121a] text-white">Cinematic Ultra (Max Fidelity)</option>
+                        </select>
+                        <Icons.chevronDown className="absolute right-5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20 group-hover:text-white transition-colors pointer-events-none" />
+                     </div>
+                    <div className="flex items-center gap-3 px-5 py-3 bg-white/[0.02] rounded-2xl border border-white/5 shadow-inner shrink-0">
+                       <Icons.sliders className="w-3.5 h-3.5 text-indigo-400/60" />
+                       <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">
+                           {Object.keys(variables).length} Controllers Active
                        </span>
                     </div>
                  </div>
 
                  <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-                   <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-                   <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Compiled Instructions</h3>
+                   <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
+                   <h3 className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Compiled Vision Instructions</h3>
                  </div>
                  
-                 <div className="flex-1 bg-black/20 rounded-2xl p-6 border border-white/5 shadow-inner overflow-hidden">
-                    <p className="text-xl leading-[1.8] text-gray-300 font-medium">
+                 <div className="flex-1 bg-black/40 rounded-[2.5rem] p-8 border border-white/5 shadow-inner overflow-y-auto scrollbar-hide">
+                    <p className="text-xl leading-[1.8] text-white/80 font-medium">
                       {resultantPrompt.split(/(__DEF__.*?__DEF__|__VAL__.*?__VAL__)/).map((s, i) => {
-                          if (s.startsWith('__DEF__')) return <span key={i} className="text-gray-400 italic px-1.5 py-0.5 bg-white/5 rounded-md border border-white/5 text-lg">{s.replace(/__DEF__/g, '')}</span>;
-                          if (s.startsWith('__VAL__')) return <span key={i} className="text-primary font-black bg-primary/10 px-2 py-1 rounded-lg border border-primary/20 shadow-lg shadow-primary/10">{s.replace(/__VAL__/g, '')}</span>;
+                          if (s.startsWith('__DEF__')) return <span key={i} className="text-white/30 italic px-2 py-0.5 bg-white/5 rounded-lg border border-white/5 mx-1 font-mono text-lg">{s.replace(/__DEF__/g, '')}</span>;
+                          if (s.startsWith('__VAL__')) return <span key={i} className="text-indigo-400 font-black bg-indigo-500/10 px-3 py-1 rounded-xl border border-indigo-500/20 shadow-lg shadow-indigo-500/10 mx-1">{s.replace(/__VAL__/g, '')}</span>;
                           return s;
                       })}
                     </p>
                   </div>
- 
-                  <div className="space-y-6 mt-auto">
-                    <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                           <label className="flex items-center gap-2 cursor-pointer w-fit group">
-                              <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all ${isNewImageSet ? 'bg-primary border-primary' : 'bg-white/5 border-white/20 group-hover:border-primary/50'}`}>
-                                {isNewImageSet && <Sparkles className="w-2.5 h-2.5 text-white" />}
+  
+                  <div className="space-y-6 mt-auto pt-8">
+                    <div className="flex flex-col gap-4">
+                        <div className="flex items-center justify-between px-2">
+                           <label className="flex items-center gap-3 cursor-pointer group">
+                              <div className={`w-5 h-5 rounded-lg border flex items-center justify-center transition-all ${isNewImageSet ? 'bg-indigo-600 border-indigo-500' : 'bg-white/5 border-white/20 group-hover:border-indigo-500/50'}`}>
+                                {isNewImageSet && <Icons.sparkles className="w-3 h-3 text-white" />}
                               </div>
                               <input type="checkbox" checked={isNewImageSet} onChange={e => setIsNewImageSet(e.target.checked)} className="hidden" />
-                              <span className="text-[10px] font-black uppercase tracking-widest text-gray-400 group-hover:text-white transition-colors">Start New Image Set <span className="text-white/20 lowercase tracking-normal font-medium">(breaks variation lineage)</span></span>
+                              <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white/30 group-hover:text-white transition-colors">Start New Asset Cluster</span>
                            </label>
                            {isNewImageSet && (
                                <button
@@ -1885,110 +1509,99 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                                        saveBlueprint(false);
                                    }}
                                    disabled={saveStatus !== 'idle'}
-                                   className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-primary hover:text-white px-3 py-1.5 bg-primary/10 hover:bg-primary/20 border border-primary/20 rounded-lg transition-all"
+                                   className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.2em] text-indigo-400 hover:text-white px-4 py-2 bg-indigo-600/10 hover:bg-indigo-600 border border-indigo-500/20 rounded-xl transition-all shadow-xl"
                                >
-                                   <Save className="w-3 h-3" />
-                                   Save New Set
-                               </button>
-                           )}
-                           {profile?.role === 'su' && (
-                               <button
-                                   onClick={() => topUpCredits(500)}
-                                   className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-accent hover:text-white px-3 py-1.5 bg-accent/10 hover:bg-accent/20 border border-accent/20 rounded-lg transition-all"
-                               >
-                                   <Zap className="w-3 h-3" />
-                                   Architectural Sync (+500)
+                                   <Icons.save className="w-3 h-3" />
+                                   Sync ID
                                </button>
                            )}
                         </div>
-                        <button onClick={handleSubmit} disabled={generating || !user || !resultantPrompt} className={`relative w-full overflow-hidden py-4 rounded-2xl font-black text-sm uppercase tracking-widest flex items-center justify-center gap-3 transition-all duration-300 ${generating || !user || !resultantPrompt ? 'opacity-50 cursor-not-allowed bg-white/5 text-gray-400' : 'bg-brand-gradient text-white hover:scale-[1.02] shadow-[0_0_30px_rgba(99,102,241,0.3)]'}`}>
-                          <span className="relative z-10 flex items-center gap-3">
-                            {generating ? <RefreshCw className="animate-spin w-5 h-5" /> : <Send className="w-5 h-5" />} 
-                            {generating ? 'Processing Neuromap...' : 'Initialize Generation'}
+                        <button onClick={handleSubmit} disabled={generating || !user || !resultantPrompt} className={`relative w-full overflow-hidden py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.4em] flex items-center justify-center gap-4 transition-all duration-500 ${generating || !user || !resultantPrompt ? 'opacity-50 cursor-not-allowed bg-white/5 text-white/10' : 'bg-indigo-600 text-white hover:scale-[1.02] active:scale-95 shadow-[0_20px_50px_rgba(79,70,229,0.3)] hover:bg-indigo-500 shadow-indigo-600/40'}`}>
+                          <span className="relative z-10 flex items-center gap-4">
+                            {generating ? <Icons.refresh className="animate-spin w-5 h-5" /> : <Icons.send className="w-5 h-5" />} 
+                            {generating ? 'Processing Neuromap...' : 'Initialize Vision'}
                           </span>
                         </button>
                     </div>
-
                  </div>
               </div>
             </div>
 
             {(generating || completion) && (
               <div className="relative animate-fade-in-up">
-                <div className="absolute -inset-1 bg-brand-gradient rounded-3xl blur opacity-20"></div>
-                <div className="relative glass-panel p-8 bg-[#1c1c2b]/95 border border-white/10 shadow-2xl space-y-6">
+                <div className="absolute -inset-1 bg-indigo-500/20 rounded-[2.5rem] blur-2xl opacity-40 pointer-events-none"></div>
+                <div className="relative glass-card p-10 bg-[#12121a]/95 border border-white/5 shadow-2xl rounded-[2.5rem] space-y-8">
                   {generating ? (
-                    <div className="space-y-6">
-                      <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                        <div className="flex items-center gap-3">
-                          <Loader2 className="w-4 h-4 text-primary animate-spin" />
-                          <h3 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Live Neural Stream</h3>
+                    <div className="space-y-8">
+                      <div className="flex items-center justify-between border-b border-white/5 pb-6">
+                        <div className="flex items-center gap-4">
+                          <Icons.spinner className="w-5 h-5 text-indigo-400 animate-spin" />
+                          <h3 className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Neural Stream Protocol</h3>
                         </div>
-                        <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest tabular-nums">{formatElapsed(elapsed)} Elapsed</span>
+                        <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] tabular-nums">{formatElapsed(elapsed)} Elapsed</span>
                       </div>
 
-                      <div className="grid grid-cols-5 gap-3">
+                      <div className="grid grid-cols-5 gap-4">
                         {status.map((step) => (
-                          <div key={step.id} className="flex flex-col gap-2">
-                             <div className={`h-1.5 rounded-full transition-all duration-500 ${step.status === 'done' ? 'bg-green-400 shadow-[0_0_10px_rgba(74,222,128,0.5)]' : step.status === 'active' ? 'bg-primary' : 'bg-white/5'}`}></div>
-                             <div className="flex items-center gap-1.5 px-1">
+                          <div key={step.id} className="flex flex-col gap-3">
+                             <div className={`h-1.5 rounded-full transition-all duration-700 ${step.status === 'done' ? 'bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)]' : step.status === 'active' ? 'bg-indigo-500 animate-pulse' : 'bg-white/5'}`}></div>
+                             <div className="flex items-center gap-2 px-1">
                                 <StepIcon stepStatus={step.status} />
-                                <span className={`text-[8px] font-black uppercase tracking-widest ${step.status === 'done' ? 'text-green-400' : step.status === 'active' ? 'text-white' : 'text-gray-600'}`}>{step.label}</span>
+                                <span className={`text-[8px] font-black uppercase tracking-[0.3em] ${step.status === 'done' ? 'text-emerald-400' : step.status === 'active' ? 'text-white' : 'text-white/10'}`}>{step.label}</span>
                              </div>
                           </div>
                         ))}
                       </div>
 
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-end">
-                           <p className="text-[10px] font-black text-primary uppercase tracking-widest flex items-center gap-2">
-                              <Sparkles className="w-3 h-3" />
-                              {progressMsg || 'Processing...'}
+                      <div className="space-y-4">
+                        <div className="flex justify-between items-end px-1">
+                           <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] flex items-center gap-3">
+                              <Icons.sparkles className="w-4 h-4 animate-pulse" />
+                              {progressMsg || 'Calibrating Data Matrix...'}
                            </p>
-                           <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest tabular-nums">
+                           <span className="text-[10px] font-black text-white/20 uppercase tracking-widest tabular-nums">
                               {Math.round(((status.filter(s => s.status === 'done').length) / status.length) * 100)}%
                            </span>
                         </div>
-                        <div className="h-1 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                        <div className="h-1.5 bg-white/5 rounded-full overflow-hidden border border-white/5 p-[1px]">
                            <div 
-                            className="h-full bg-brand-gradient transition-all duration-500 ease-out shadow-[0_0_15px_rgba(99,102,241,0.4)]"
-                            style={{ width: `${(status.filter(s => s.status === 'done').length / status.length) * 100}%` }}
+                             className="h-full bg-indigo-600 transition-all duration-700 ease-out shadow-[0_0_20px_rgba(79,70,229,0.6)] rounded-full"
+                             style={{ width: `${(status.filter(s => s.status === 'done').length / status.length) * 100}%` }}
                            ></div>
                         </div>
 
-                        <div className="pt-6 flex justify-center">
+                        <div className="pt-8 flex justify-center">
                             <button 
                               onClick={handleCancelGeneration}
-                              className="px-6 py-2.5 bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-[0.2em] border border-red-500/20 transition-all shadow-xl hover:scale-105 active:scale-95 flex items-center gap-3"
+                              className="px-8 py-3 bg-rose-600/10 hover:bg-rose-600 text-rose-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-[0.4em] border border-rose-500/20 transition-all shadow-xl active:scale-95 flex items-center gap-3"
                             >
-                                <X className="w-3.5 h-3.5" />
-                                Cancel Command
+                                <Icons.close className="w-4 h-4" />
+                                Abort Initialization
                             </button>
                         </div>
                        </div>
-
                      </div>
                   ) : completion && (
-                    <div className="space-y-6 animate-in zoom-in-95 duration-500">
-                       <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                          <div className="flex items-center gap-3">
-                             <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.5)]"></div>
-                             <h3 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Generation Successful</h3>
+                    <div className="space-y-8 animate-in zoom-in-95 duration-700">
+                       <div className="flex items-center justify-between border-b border-white/5 pb-6">
+                          <div className="flex items-center gap-4">
+                             <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse"></div>
+                             <h3 className="text-[10px] font-black text-white uppercase tracking-[0.3em]">Manifest Render Complete</h3>
                           </div>
-                          <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest tabular-nums">Manifest Rendered in {completion.elapsed}s</span>
+                          <span className="text-[10px] font-black text-white/20 uppercase tracking-widest tabular-nums">{completion.elapsed}s Processed</span>
                        </div>
 
-                       <div className="grid grid-cols-2 gap-4">
-                          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col items-center gap-2">
-                             <Zap className="w-4 h-4 text-primary" />
-                             <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest">Architectural Cost</p>
-                             <p className="text-sm font-black text-white">{completion.creditsUsed} Credits</p>
-                          </div>
-                          <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col items-center gap-2">
-                             <Database className="w-4 h-4 text-primary" />
-                             <p className="text-[8px] font-black text-gray-500 uppercase tracking-widest">Remaining Nodes</p>
-                             <p className="text-sm font-black text-white tabular-nums">{completion.remainingBalance}</p>
-                          </div>
+                       <div className="grid grid-cols-2 gap-6">
+                           <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-6 flex flex-col items-center gap-3 hover:border-indigo-500/20 transition-all group/stat">
+                              <Icons.zap className="w-5 h-5 text-indigo-400 group-hover:scale-110 transition-transform" />
+                              <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">Architectural Cost</p>
+                              <p className="text-lg font-black text-white">{completion.creditsUsed} Credits</p>
+                           </div>
+                           <div className="bg-white/[0.03] border border-white/5 rounded-2xl p-6 flex flex-col items-center gap-3 hover:border-indigo-500/20 transition-all group/stat">
+                              <Icons.database className="w-5 h-5 text-indigo-400 group-hover:scale-110 transition-transform" />
+                              <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">Available Nodes</p>
+                              <p className="text-lg font-black text-white tabular-nums">{completion.remainingBalance}</p>
+                           </div>
                        </div>
 
                        <button 
@@ -1996,7 +1609,7 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                           setCompletion(null);
                           setActiveDetailTab('media');
                         }}
-                        className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all"
+                        className="w-full py-4 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl text-[10px] font-black uppercase tracking-[0.3em] transition-all active:scale-95 shadow-xl"
                        >
                           View Gallery Distribution
                        </button>
@@ -2015,55 +1628,57 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
                         setPreviewPrompt(selectedPrompt?.template || generatedImages[0]?.prompt || null);
                     }}
                 >
-                  <div className="absolute -inset-1 bg-brand-gradient rounded-3xl blur opacity-30 group-hover:opacity-50 transition-all duration-500"></div>
-                  <img src={selectedPrompt?.thumbnailUrl || generatedImages[0]?.url} className="relative w-full rounded-2xl shadow-2xl border border-white/10 group-hover:scale-[1.01] transition-transform duration-500" alt="Vision Preview" />
-                  
-                  {/* Hover Overlay */}
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-2xl flex items-center justify-center backdrop-blur-sm">
-                      <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20 transform scale-75 group-hover:scale-100 transition-transform duration-500">
-                          <ZoomIn className="w-8 h-8 text-white" />
-                      </div>
-                      <span className="absolute bottom-6 text-[10px] font-black text-white uppercase tracking-[0.2em] opacity-0 group-hover:opacity-100 transition-opacity">Expand Vision Preview</span>
+                  <div className="absolute -inset-2 bg-indigo-500/20 rounded-[2.5rem] blur-2xl opacity-0 group-hover:opacity-60 transition-all duration-700 pointer-events-none"></div>
+                  <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-black shadow-2xl">
+                     <img src={selectedPrompt?.thumbnailUrl || generatedImages[0]?.url} className="w-full object-cover transition-transform duration-1000 group-hover:scale-110" alt="Vision Preview" />
+                     
+                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                         <div className="bg-white/10 backdrop-blur-md p-6 rounded-3xl border border-white/20 transform scale-75 group-hover:scale-100 transition-all duration-500 shadow-2xl">
+                             <Icons.zoomIn className="w-10 h-10 text-white" />
+                         </div>
+                         <span className="absolute bottom-8 text-[10px] font-black text-white uppercase tracking-[0.4em] opacity-0 group-hover:opacity-100 transition-all duration-700 delay-100">Expand Vision Preview</span>
+                     </div>
                   </div>
                 </div>
             )}
           </div>
         </section>
       )}
+
       {/* Image Preview Modal */}
       {previewImageUrl && createPortal(
         <div 
-          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 md:p-12 backdrop-blur-3xl bg-black/80 animate-fade-in"
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 md:p-12 backdrop-blur-3xl bg-black/90 animate-fade-in"
           onClick={() => { setPreviewImageUrl(null); setPreviewPrompt(null); }}
         >
            <button 
              onClick={() => { setPreviewImageUrl(null); setPreviewPrompt(null); }}
-             className="absolute top-8 right-8 z-[120] p-4 bg-white/5 hover:bg-red-500 text-white rounded-2xl border border-white/10 transition-all group"
+             className="absolute top-10 right-10 z-[120] p-5 bg-white/5 hover:bg-rose-600 text-white rounded-2xl border border-white/10 transition-all group shadow-2xl"
            >
-              <X className="w-6 h-6 group-hover:scale-110 transition-transform" />
+              <Icons.close className="w-6 h-6 group-hover:scale-110 transition-transform" />
            </button>
 
            <div 
-             className="relative max-w-7xl w-full max-h-[90vh] flex flex-col md:flex-row items-stretch rounded-[2.5rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-white/10 group/modal bg-[#181825]"
+             className="relative max-w-7xl w-full max-h-[90vh] flex flex-col md:flex-row items-stretch rounded-[3rem] overflow-hidden shadow-[0_0_150px_rgba(0,0,0,0.9)] border border-white/10 group/modal bg-[#12121a]"
              onClick={(e) => e.stopPropagation()}
            >
-              <div className="flex-1 relative flex items-center justify-center bg-black/50 overflow-hidden">
-                  <div className="absolute -inset-10 bg-brand-gradient opacity-20 blur-3xl animate-pulse pointer-events-none"></div>
+              <div className="flex-1 relative flex items-center justify-center bg-black/60 overflow-hidden min-h-[40vh] md:min-h-0">
+                  <div className="absolute -inset-20 bg-indigo-600 opacity-10 blur-[120px] animate-pulse pointer-events-none"></div>
                   <img 
                     src={previewImageUrl} 
-                    className="relative w-full h-full object-contain z-10 p-4 md:p-8" 
+                    className="relative w-full h-full object-contain z-10 p-4 md:p-12" 
                     alt="Vision Preview" 
                   />
                   
-                  <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 px-8 py-3 bg-black/60 backdrop-blur-xl border border-white/10 rounded-full flex items-center gap-4 opacity-0 group-hover/modal:opacity-100 transition-opacity duration-500">
-                     <div className="flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-primary" />
-                        <span className="text-xs font-black text-white uppercase tracking-widest whitespace-nowrap">{previewTitle || 'High-Fidelity Neural Output'}</span>
+                  <div className="absolute bottom-12 left-1/2 -translate-x-1/2 z-20 px-10 py-4 bg-black/60 backdrop-blur-2xl border border-white/10 rounded-full flex items-center gap-6 opacity-0 group-hover/modal:opacity-100 transition-all duration-700 shadow-2xl">
+                     <div className="flex items-center gap-3">
+                        <Icons.sparkles className="w-4 h-4 text-indigo-400" />
+                        <span className="text-xs font-black text-white uppercase tracking-[0.2em] whitespace-nowrap">{previewTitle || 'High-Fidelity Neural Output'}</span>
                      </div>
-                     <div className="h-4 w-px bg-white/10"></div>
+                     <div className="h-4 w-[1px] bg-white/10"></div>
                      <button 
                       onClick={() => window.open(previewImageUrl, '_blank')}
-                      className="text-[10px] font-black text-primary hover:text-white transition-colors uppercase tracking-widest"
+                      className="text-[10px] font-black text-indigo-400 hover:text-white transition-colors uppercase tracking-[0.3em] active:scale-95"
                      >
                         Source Raw Link
                      </button>
@@ -2071,23 +1686,23 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
               </div>
 
               {previewPrompt && [...previewPrompt.matchAll(VAR_REGEX)].length > 0 && (
-                <div className="w-full md:w-96 bg-[#1a1b26] border-l border-white/10 p-8 flex flex-col gap-6 overflow-y-auto hidden md:flex z-20">
+                <div className="w-full md:w-96 bg-[#0f0f15] border-l border-white/5 p-10 flex flex-col gap-8 overflow-y-auto hidden md:flex z-20 scrollbar-hide">
                     <div>
-                        <h4 className="text-[10px] font-black text-primary uppercase tracking-[0.2em] mb-2 flex items-center gap-2">
-                            <Sliders className="w-4 h-4" />
+                        <h4 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.4em] mb-3 flex items-center gap-3">
+                            <Icons.sliders className="w-5 h-5" />
                             Active Variables
                         </h4>
-                        <p className="text-xs text-gray-500 max-w-[200px]">Metadata parameter values structurally embedded in this generation.</p>
+                        <p className="text-[10px] font-medium text-white/20 uppercase tracking-widest leading-relaxed">Structural parameter values legacy-embedded in this specific generation.</p>
                     </div>
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                         {[...previewPrompt.matchAll(VAR_REGEX)].map((match, idx) => {
-                            const parts = match[1].split(':');
+                            const parts = match[ match.length > 1 ? 1 : 0].split(':');
                             const key = parts[0];
                             const val = parts.length > 1 ? parts[1] : '<undefined>';
                             return (
-                                <div key={idx} className="bg-white/5 border border-white/5 p-4 rounded-xl flex flex-col gap-1 hover:border-primary/30 transition-colors">
-                                    <span className="text-[9px] font-black text-gray-500 uppercase tracking-widest">{key}</span>
-                                    <span className="text-sm font-medium text-white break-words">{val}</span>
+                                <div key={idx} className="bg-white/[0.02] border border-white/5 p-6 rounded-[1.5rem] flex flex-col gap-2 hover:border-indigo-500/30 transition-all shadow-inner group/var">
+                                    <span className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em] group-hover/var:text-indigo-400 transition-colors">{key}</span>
+                                    <span className="text-sm font-medium text-white break-words leading-relaxed">{val}</span>
                                 </div>
                             );
                         })}
@@ -2098,110 +1713,108 @@ const PromptMaster: React.FC<PromptMasterProps> = ({
         </div>,
         document.body
       )}
+
         {/* Metrics Status Popup */}
         {viewingMetrics && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 sm:p-0">
-             <div className="absolute inset-0 bg-black/80 backdrop-blur-md animate-fade-in" onClick={() => setViewingMetrics(null)} />
-             <div className="relative w-full max-w-lg glass-panel p-10 space-y-8 bg-background-secondary/95 border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] animate-fade-in-up">
+             <div className="absolute inset-0 bg-black/85 backdrop-blur-xl animate-fade-in" onClick={() => setViewingMetrics(null)} />
+             <div className="relative w-full max-w-lg glass-card p-12 space-y-10 bg-[#12121a]/95 border-white/10 shadow-[0_0_100px_rgba(0,0,0,0.8)] animate-fade-in-up rounded-[3.5rem]">
                 <button 
                   onClick={() => setViewingMetrics(null)}
-                  className="absolute top-6 right-6 p-2 text-white/20 hover:text-white transition-colors"
+                  className="absolute top-10 right-10 p-3 text-white/20 hover:text-white transition-colors bg-white/5 rounded-xl border border-white/10"
                 >
-                  <X className="w-6 h-6" />
+                  <Icons.close className="w-6 h-6" />
                 </button>
                 
-                <div className="space-y-2">
-                  <p className="text-[10px] font-black text-primary uppercase tracking-[0.3em]">Architectural Analysis</p>
-                  <h2 className="text-3xl font-black uppercase tracking-tighter text-white">{viewingMetrics.title}</h2>
+                <div className="space-y-4">
+                  <p className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.5em]">Architectural Analysis</p>
+                  <h2 className="text-4xl font-black uppercase tracking-tighter text-white leading-tight">{viewingMetrics.title}</h2>
                 </div>
 
-                <div className="grid grid-cols-1 gap-6">
-                   {/* Complexity */}
-                   <div className="p-6 bg-white/[0.03] rounded-[2rem] border border-white/5 space-y-4">
+                <div className="grid grid-cols-1 gap-8">
+                   <div className="p-8 bg-white/[0.03] rounded-[2.5rem] border border-white/5 space-y-6 shadow-inner">
                       <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                          <Layers className="w-5 h-5 text-primary" />
-                          <span className="text-xs font-black uppercase tracking-widest text-white/50">Prompt Complexity</span>
+                        <div className="flex items-center gap-4">
+                          <Icons.stack className="w-6 h-6 text-indigo-400" />
+                          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40">Blueprint Complexity</span>
                         </div>
-                        <span className="text-xl font-black text-primary">{Math.round(calculateComplexity(viewingMetrics.template, viewingMetrics.prompts) * 100)}%</span>
+                        <span className="text-2xl font-black text-indigo-400">{Math.round(calculateComplexity(viewingMetrics.template, viewingMetrics.prompts) * 100)}%</span>
                       </div>
-                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-primary" style={{ width: `${calculateComplexity(viewingMetrics.template, viewingMetrics.prompts) * 100}%` }} />
+                      <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden p-[1px]">
+                        <div className="h-full bg-indigo-600 rounded-full shadow-[0_0_15px_rgba(79,70,229,0.5)]" style={{ width: `${calculateComplexity(viewingMetrics.template, viewingMetrics.prompts) * 100}%` }} />
                       </div>
-                      <p className="text-[10px] font-medium text-gray-500 leading-relaxed uppercase tracking-wider">
-                        Measures variable density and structural placeholders within the blueprint. High complexity indicates a more versatile template requiring precise overrides.
+                      <p className="text-[10px] font-medium text-white/20 leading-relaxed uppercase tracking-[0.2em]">
+                        Measures architectural placeholder density. Higher complexity requires precise neural overrides.
                       </p>
                    </div>
 
-                   {/* Freshness */}
-                   <div className="p-6 bg-white/[0.03] rounded-[2rem] border border-white/5 space-y-4">
+                   <div className="p-8 bg-white/[0.03] rounded-[2.5rem] border border-white/5 space-y-6 shadow-inner">
                       <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                          <RefreshCw className="w-5 h-5 text-accent" />
-                          <span className="text-xs font-black uppercase tracking-widest text-white/50">Sync Freshness</span>
+                        <div className="flex items-center gap-4">
+                          <Icons.refresh className="w-6 h-6 text-emerald-400" />
+                          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40">Sync Freshness</span>
                         </div>
-                        <span className="text-xl font-black text-accent">{Math.round(calculateFreshness(viewingMetrics.updatedAt) * 100)}%</span>
+                        <span className="text-2xl font-black text-emerald-400">{Math.round(calculateFreshness(viewingMetrics.updatedAt) * 100)}%</span>
                       </div>
-                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-accent" style={{ width: `${calculateFreshness(viewingMetrics.updatedAt) * 100}%` }} />
+                      <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden p-[1px]">
+                        <div className="h-full bg-emerald-500 rounded-full shadow-[0_0_15px_rgba(16,185,129,0.5)]" style={{ width: `${calculateFreshness(viewingMetrics.updatedAt) * 100}%` }} />
                       </div>
-                      <p className="text-[10px] font-medium text-gray-500 leading-relaxed uppercase tracking-wider">
-                        Architectural data recency score. Entries older than 30 cycles enter decommissioning status. Last synchronized: {new Date(viewingMetrics.updatedAt || Date.now()).toLocaleDateString()}.
+                      <p className="text-[10px] font-medium text-white/20 leading-relaxed uppercase tracking-[0.2em]">
+                        Data recency score. Last synchronized: {new Date(viewingMetrics.updatedAt || Date.now()).toLocaleDateString()}.
                       </p>
                    </div>
 
-                   {/* Usage */}
-                   <div className="p-6 bg-white/[0.03] rounded-[2rem] border border-white/5 space-y-4">
+                   <div className="p-8 bg-white/[0.03] rounded-[2.5rem] border border-white/5 space-y-6 shadow-inner">
                       <div className="flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                          <Zap className="w-5 h-5 text-white/40" />
-                          <span className="text-xs font-black uppercase tracking-widest text-white/50">Ecosystem Usage</span>
+                        <div className="flex items-center gap-4">
+                          <Icons.zap className="w-6 h-6 text-indigo-400/40" />
+                          <span className="text-[10px] font-black uppercase tracking-[0.3em] text-white/40">Ecosystem Usage</span>
                         </div>
-                        <span className="text-xl font-black text-white/70">{Math.round(calculateUsageRating(viewingMetrics.id) * 100)}%</span>
+                        <span className="text-2xl font-black text-white/60">{Math.round(calculateUsageRating(viewingMetrics.id) * 100)}%</span>
                       </div>
-                      <div className="h-1.5 w-full bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-white/30" style={{ width: `${calculateUsageRating(viewingMetrics.id) * 100}%` }} />
+                      <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden p-[1px]">
+                        <div className="h-full bg-white/20 rounded-full" style={{ width: `${calculateUsageRating(viewingMetrics.id) * 100}%` }} />
                       </div>
-                      <p className="text-[10px] font-medium text-gray-500 leading-relaxed uppercase tracking-wider">
-                        Frequency of architectural implementation across the Stillwater cluster. Higher ratings indicate robust blueprint performance and ecosystem compatibility.
+                      <p className="text-[10px] font-medium text-white/20 leading-relaxed uppercase tracking-[0.2em]">
+                        Frequency of implementation across the Stillwater cluster.
                       </p>
                    </div>
                 </div>
 
-                <div className="pt-4">
-                  <button 
-                    onClick={() => setViewingMetrics(null)}
-                    className="w-full py-4 bg-white text-black text-[10px] font-black uppercase tracking-[0.3em] rounded-2xl hover:scale-[1.02] active:scale-[0.98] transition-all shadow-xl"
-                  >
-                    Close Analysis
-                  </button>
-                </div>
+                <button 
+                  onClick={() => setViewingMetrics(null)}
+                  className="w-full py-5 bg-white text-black text-[11px] font-black uppercase tracking-[0.5em] rounded-[1.5rem] hover:scale-[1.02] active:scale-[0.98] transition-all shadow-2xl"
+                >
+                  Close Analysis
+                </button>
              </div>
           </div>
         )}
+
         {/* Clone Success Notification */}
         {notification && (
-          <div className="fixed bottom-10 right-10 z-[200] max-w-sm animate-in slide-in-from-right-10 duration-500">
-             <div className="relative glass-panel p-5 bg-[#1c1c2b]/95 border border-primary/30 shadow-[0_0_40px_rgba(99,102,241,0.2)] rounded-2xl flex flex-col gap-3">
-                <div className="flex items-center gap-3">
-                   <div className="w-8 h-8 rounded-xl bg-primary/20 flex items-center justify-center">
-                      <Check className="w-4 h-4 text-primary" />
+          <div className="fixed bottom-12 right-12 z-[200] max-w-sm animate-in slide-in-from-right-12 duration-700">
+             <div className="relative glass-card p-6 bg-[#12121a]/95 border border-indigo-500/30 shadow-[0_40px_100px_rgba(0,0,0,0.5)] rounded-3xl flex flex-col gap-4 backdrop-blur-3xl overflow-hidden">
+                <div className="absolute -inset-10 bg-indigo-600/10 blur-3xl pointer-events-none"></div>
+                <div className="flex items-center gap-4 relative z-10">
+                   <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center shrink-0">
+                      <Icons.check className="w-6 h-6 text-indigo-400 shadow-[0_0_10px_rgba(129,140,248,0.5)]" />
                    </div>
-                   <div>
-                      <h4 className="text-[10px] font-black text-white uppercase tracking-widest leading-none">Architecture Registered</h4>
-                      <p className="text-[9px] text-gray-500 mt-1 uppercase font-bold truncate max-w-[200px]">{notification.title}</p>
+                   <div className="min-w-0">
+                      <h4 className="text-[11px] font-black text-white uppercase tracking-[0.2em] leading-none">Architecture Registered</h4>
+                      <p className="text-[10px] text-white/30 mt-2 uppercase font-bold truncate max-w-[200px] tracking-widest">{notification.title}</p>
                    </div>
                 </div>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="flex items-center gap-3 mt-2 relative z-10">
                    <button 
                      onClick={() => { handleViewInGallery({ promptSetID: notification.id }); setNotification(null); }}
-                     className="flex-1 py-2 bg-primary text-white text-[9px] font-black uppercase tracking-widest rounded-lg hover:scale-[1.02] transition-all"
+                     className="flex-1 py-3 bg-indigo-600 text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-xl hover:bg-indigo-500 hover:scale-[1.02] transition-all shadow-xl"
                    >
-                     View in Gallery
+                     View Gallery
                    </button>
                    <button 
                      onClick={() => setNotification(null)}
-                     className="px-3 py-2 bg-white/5 text-gray-500 hover:text-white text-[9px] font-black uppercase tracking-widest rounded-lg transition-all"
+                     className="px-5 py-3 bg-white/5 text-white/20 hover:text-white text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all hover:bg-white/10"
                    >
                      Dismiss
                    </button>
