@@ -62,7 +62,8 @@ function VariationExplorer({
     onToggleSelect,
     selectedIds,
     deletingId,
-    onViewVariation
+    onViewVariation,
+    activeThumbnailUrl
 }: { 
     group: GImage[]; 
     onClose: () => void;
@@ -72,6 +73,7 @@ function VariationExplorer({
     selectedIds: Set<string>;
     deletingId: string | null;
     onViewVariation?: (img: GImage) => void;
+    activeThumbnailUrl?: string | null;
 }) {
   const scrollRef = useCallback((node: HTMLDivElement | null) => {
     if (node) node.scrollTop = 0;
@@ -95,7 +97,7 @@ function VariationExplorer({
         <div className="max-w-7xl w-full mx-auto flex items-center justify-between mb-12">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+              <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                  <Icons.stack size={16} />
               </div>
               <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Variation Set Explorer</span>
@@ -103,7 +105,7 @@ function VariationExplorer({
             <h3 className="text-3xl md:text-5xl font-black uppercase tracking-tighter text-white">
               {group[0]?.title || "Neural Generation Set"}
             </h3>
-            <p className="text-[10px] font-black text-indigo-400/40 uppercase tracking-[0.2em]">
+            <p className="text-[10px] font-black text-primary/40 uppercase tracking-[0.2em]">
               INDEX: <span className="text-white/60">{group[0]?.promptSetID}</span> <span className="mx-2 text-white/10">|</span> {group.length} ASSETS DETECTED
             </p>
           </div>
@@ -129,6 +131,7 @@ function VariationExplorer({
                 onDelete={() => onDelete(img.id)}
                 deleting={deletingId === img.id}
                 onViewVariation={onViewVariation}
+                activeThumbnailUrl={activeThumbnailUrl}
               />
             ))}
           </div>
@@ -181,7 +184,7 @@ function Lightbox({
           <div className="w-full md:w-[450px] border-l border-white/5 p-8 flex flex-col gap-8 bg-[#12121a]/50 backdrop-blur-3xl overflow-y-auto">
             <div className="space-y-4">
               <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+                <div className="w-8 h-8 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
                    <Icons.sparkles size={16} />
                 </div>
                 <span className="text-[10px] font-black text-white/40 uppercase tracking-[0.3em]">Neural Manifest v1.0</span>
@@ -189,12 +192,12 @@ function Lightbox({
               <h3 className="text-3xl font-black text-white uppercase tracking-tighter leading-none">
                 {image.title || "Untitled Fragment"}
               </h3>
-              <p className="text-[10px] font-black text-indigo-400/60 uppercase tracking-widest">{formatDate(image.createdAt)} Registry Sequence</p>
+              <p className="text-[10px] font-black text-primary/60 uppercase tracking-widest">{formatDate(image.createdAt)} Registry Sequence</p>
             </div>
 
             <div className="space-y-4">
               <div className="p-6 bg-white/[0.03] border border-white/5 rounded-2xl space-y-4 group">
-                <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] group-hover:text-indigo-400 transition-colors">Neural Blueprint Hash</p>
+                <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] group-hover:text-primary transition-colors">Neural Blueprint Hash</p>
                 <div className="max-h-[150px] overflow-y-auto pr-2 custom-scrollbar">
                    <p className="text-xs text-white/60 leading-relaxed font-medium font-mono break-all">{image.prompt}</p>
                 </div>
@@ -203,14 +206,14 @@ function Lightbox({
 
             <div className="grid grid-cols-2 gap-4">
               <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-3">
-                <Icons.stack className="w-5 h-5 text-indigo-400" />
+                <Icons.stack className="w-5 h-5 text-primary" />
                 <div className="text-center">
                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Density</p>
                    <p className="text-[11px] font-black text-white uppercase">{image.settings?.quality || 'Standard'}</p>
                 </div>
               </div>
               <div className="p-5 bg-white/[0.02] border border-white/5 rounded-2xl flex flex-col items-center gap-3">
-                <Icons.play className="w-5 h-5 text-indigo-400" />
+                <Icons.play className="w-5 h-5 text-primary" />
                 <div className="text-center">
                    <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">Architecture</p>
                    <p className="text-[11px] font-black text-white uppercase">{image.settings?.modality || 'Image'}</p>
@@ -225,7 +228,7 @@ function Lightbox({
                     onViewVariation(image);
                     onClose();
                   }}
-                  className="w-full py-5 bg-indigo-600 text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-2xl hover:bg-indigo-500 active:scale-[0.98] transition-all shadow-xl shadow-indigo-600/20 flex items-center justify-center gap-3"
+                  className="w-full py-5 bg-primary text-white text-[11px] font-black uppercase tracking-[0.3em] rounded-2xl hover:bg-primary/80 active:scale-[0.98] transition-all shadow-xl shadow-primary/20 flex items-center justify-center gap-3"
                 >
                   <Icons.edit size={16} /> Update Variations
                 </button>
@@ -299,10 +302,11 @@ interface GalleryCardProps {
   onDelete: () => void;
   deleting: boolean;
   onViewVariation?: (image: GImage) => void;
+  activeThumbnailUrl?: string | null;
 }
 
 function GalleryCard({
-  image, viewMode, isSelected, onToggleSelect, onLightbox, onDelete, deleting, onViewVariation
+  image, viewMode, isSelected, onToggleSelect, onLightbox, onDelete, deleting, onViewVariation, activeThumbnailUrl
 }: GalleryCardProps) {
   const isPublished = image.publishedToCommunity || image.publishedToLeague;
   const isVideo = !!(image.videoUrl || image.settings?.modality === 'video');
@@ -310,23 +314,23 @@ function GalleryCard({
   if (viewMode === 'list') {
     return (
       <div
-        className={`flex items-center gap-4 p-4 rounded-2xl border transition-all group ${isSelected ? 'bg-indigo-500/10 border-indigo-500/30' : 'bg-white/[0.02] border-white/5 hover:border-white/15'}`}
+        className={`flex items-center gap-4 p-4 rounded-2xl border transition-all group ${isSelected ? 'bg-primary/10 border-primary/30' : 'bg-white/[0.02] border-white/5 hover:border-white/15'}`}
       >
         <button
           onClick={onToggleSelect}
-          className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 transition-all ${isSelected ? 'bg-indigo-600 border-indigo-400' : 'bg-white/5 border-white/10 hover:border-indigo-400/50'}`}
+          className={`w-6 h-6 rounded-lg border flex items-center justify-center shrink-0 transition-all ${isSelected ? 'bg-primary border-primary' : 'bg-white/5 border-white/10 hover:border-primary/50'}`}
         >
           {isSelected && <Icons.check size={14} className="text-white" />}
         </button>
         <button onClick={onLightbox} className="shrink-0 relative group">
-          <img src={image.imageUrl} alt="" className="w-16 h-16 rounded-xl object-cover border border-white/10 group-hover:border-indigo-500/50 transition-all" />
-          <div className="absolute inset-0 bg-indigo-600/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl" />
+          <img src={image.imageUrl} alt="" className="w-16 h-16 rounded-xl object-cover border border-white/10 group-hover:border-primary/50 transition-all" />
+          <div className="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl" />
         </button>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-3 mb-1">
              <p className="text-white text-sm font-black uppercase tracking-tighter truncate">{image.title || "Untitled Fragment"}</p>
              <div className="flex gap-2">
-                {isPublished && <span className="text-[8px] font-black bg-indigo-500/20 text-indigo-400 px-2 py-0.5 rounded-full uppercase tracking-widest border border-indigo-500/20">Registry Hub</span>}
+                {isPublished && <span className="text-[8px] font-black bg-primary/20 text-primary px-2 py-0.5 rounded-full uppercase tracking-widest border border-primary/20">Registry Hub</span>}
                 {image.isExemplar && <span className="text-[8px] font-black bg-amber-500/20 text-amber-500 px-2 py-0.5 rounded-full uppercase tracking-widest border border-amber-500/20">Exemplar</span>}
              </div>
           </div>
@@ -336,7 +340,7 @@ function GalleryCard({
           {onViewVariation && image.promptSetID && (
             <button
               onClick={(e) => { e.stopPropagation(); onViewVariation(image); }}
-              className="px-4 py-2 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 text-[9px] font-black uppercase tracking-widest hover:bg-indigo-500 hover:text-white transition-all flex items-center gap-2"
+              className="px-4 py-2 rounded-xl bg-primary/10 text-primary border border-primary/20 text-[9px] font-black uppercase tracking-widest hover:bg-primary hover:text-white transition-all flex items-center gap-2"
             >
               <Icons.edit size={12} /> Workbench
             </button>
@@ -356,13 +360,13 @@ function GalleryCard({
 
   return (
     <div
-      className={`group relative rounded-2xl overflow-hidden border transition-all cursor-pointer bg-white/[0.02] shadow-2xl ${isSelected ? 'border-indigo-500 ring-4 ring-indigo-500/10' : 'border-white/5 hover:border-indigo-500/30'}`}
+      className={`group relative rounded-2xl overflow-hidden border transition-all cursor-pointer bg-white/[0.02] shadow-2xl ${isSelected ? 'border-primary ring-4 ring-primary/10' : 'border-white/5 hover:border-primary/30'}`}
       onClick={onLightbox}
     >
       {/* select toggle */}
       <button
         onClick={(e) => { e.stopPropagation(); onToggleSelect(); }}
-        className={`absolute top-3 left-3 z-20 w-8 h-8 rounded-xl border flex items-center justify-center transition-all shadow-xl backdrop-blur-md ${isSelected ? 'bg-indigo-600 border-indigo-400 scale-100' : 'bg-black/40 border-white/20 opacity-0 group-hover:opacity-100 hover:border-indigo-400'}`}
+        className={`absolute top-3 left-3 z-20 w-8 h-8 rounded-xl border flex items-center justify-center transition-all shadow-xl backdrop-blur-md ${isSelected ? 'bg-primary border-primary scale-100' : 'bg-black/40 border-white/20 opacity-0 group-hover:opacity-100 hover:border-primary'}`}
       >
         {isSelected && <Icons.check size={16} className="text-white" />}
       </button>
@@ -388,8 +392,13 @@ function GalleryCard({
 
       {/* Badge Overlays */}
       <div className="absolute top-14 left-3 flex flex-col gap-1.5 z-10 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+        {image.imageUrl === activeThumbnailUrl && (
+          <div className="flex items-center gap-2 bg-primary text-white px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-xl border border-primary/50 animate-pulse">
+            <Icons.check size={10} /> Active Architecture
+          </div>
+        )}
         {isPublished && (
-          <div className="flex items-center gap-2 bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-xl">
+          <div className="flex items-center gap-2 bg-primary text-white px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest shadow-xl">
             <Icons.trophy size={10} /> Hub
           </div>
         )}
@@ -422,13 +431,14 @@ function GalleryCard({
       </div>
 
       {/* hover overlay interaction */}
-      <div className="absolute inset-0 bg-indigo-900/40 opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col items-center justify-center gap-4 z-[15] backdrop-blur-[2px]">
+      <div className="absolute inset-0 bg-primary/40 opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col items-center justify-center gap-4 z-[15] backdrop-blur-[2px]">
         {onViewVariation && image.promptSetID && (
           <button
             onClick={(e) => { e.stopPropagation(); onViewVariation(image); }}
-            className="px-6 py-3 bg-white text-black text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl hover:bg-indigo-500 hover:text-white transition-all shadow-2xl active:scale-95 flex items-center gap-3"
+            className={`px-6 py-3 text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all shadow-2xl active:scale-95 flex items-center gap-3 ${image.imageUrl === activeThumbnailUrl ? 'bg-rose-600 text-white hover:bg-rose-500' : 'bg-white text-black hover:bg-primary hover:text-white'}`}
           >
-            <Icons.edit size={14} /> Workbench
+            {image.imageUrl === activeThumbnailUrl ? <Icons.close size={14} /> : <Icons.edit size={14} />}
+            {image.imageUrl === activeThumbnailUrl ? 'Deselect Architecture' : 'Workbench'}
           </button>
         )}
         <div className="flex items-center gap-2 text-[9px] font-black text-white/50 uppercase tracking-[0.3em]">
@@ -444,9 +454,10 @@ interface GalleryProps {
   onViewVariation?: (image: GImage) => void;
   initialSearch?: string;
   initialAssetId?: string | null;
+  activeThumbnailUrl?: string | null;
 }
 
-export default function PromptToolGallery({ onViewVariation, initialSearch = '', initialAssetId = null }: GalleryProps) {
+export default function PromptToolGallery({ onViewVariation, initialSearch = '', initialAssetId = null, activeThumbnailUrl = null }: GalleryProps) {
   const { user } = useAuth();
 
   const [images, setImages] = useState<GImage[]>([]);
@@ -581,76 +592,93 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
   return (
     <div className="space-y-8">
       {/* ── Toolbar ─────────────────────────────────────────────── */}
-      <div className="flex flex-wrap gap-4 items-center p-5 bg-white/[0.02] border border-white/5 rounded-3xl backdrop-blur-3xl">
-        <div className="relative flex-1 min-w-[280px]">
-          <Icons.search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-          <input
-            type="text"
-            placeholder="Search Registry Artifacts…"
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full bg-black/40 border border-white/5 rounded-2xl pl-12 pr-4 py-3 text-xs text-white placeholder:text-white/10 outline-none focus:border-indigo-500/30 transition-all font-medium"
-          />
+      {/* ── CONTROL BELT (Aligned with Resources) ── */}
+      <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-background-secondary/30 backdrop-blur-xl border border-white/5 rounded-[2rem] mb-6 shadow-2xl relative overflow-hidden">
+        <div className="flex flex-wrap items-center gap-4 flex-1 min-w-[300px] relative z-10">
+          {/* Search Architecture */}
+          <div className="relative flex-1 max-w-md group">
+            <Icons.search className={`absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${searchQuery ? 'text-primary' : 'text-white/20'}`} />
+            <input
+              type="text"
+              placeholder="Search Registry Artifacts…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full h-11 pl-12 pr-10 bg-black/40 border border-white/5 rounded-2xl text-sm text-white outline-none focus:border-primary/50 transition-all font-medium placeholder:text-white/30"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/80">
+                <Icons.close size={14} />
+              </button>
+            )}
+          </div>
+
+          <div className="h-8 w-px bg-white/5 hidden md:block"></div>
+
+          <button
+            onClick={() => setIsGrouped(!isGrouped)}
+            className={`flex items-center gap-2.5 h-11 px-5 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border ${isGrouped ? 'bg-primary/10 text-primary border-primary/20 shadow-xl' : 'bg-black/40 text-white/20 border-white/5 hover:text-white hover:border-white/10'}`}
+          >
+            <Icons.stack className={`w-4 h-4 ${isGrouped ? 'animate-pulse' : ''}`} />
+            {isGrouped ? "Grouped View" : "Individual"}
+          </button>
+          
+          <div className="h-8 w-px bg-white/5 hidden md:block"></div>
+
+          {/* Density Selector Architecture */}
+          <div className="flex p-1 bg-black/40 rounded-xl border border-white/5">
+            {(['grid-2', 'grid-3', 'grid-4'] as ViewMode[]).map(m => (
+              <button
+                key={m}
+                onClick={() => setViewMode(m)}
+                className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${viewMode === m ? 'bg-white/10 text-white shadow-inner' : 'text-white/20 hover:text-white'}`}
+              >
+                {m.split('-')[1]}C
+              </button>
+            ))}
+            <button
+              onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-white/10 text-white shadow-inner' : 'text-white/20 hover:text-white'}`}
+              title="List View"
+            >
+              <Icons.list size={16} />
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-           <select
-             value={sortMode}
-             onChange={e => { setSortMode(e.target.value as SortMode); setImages([]); setLastDoc(null); }}
-             className="bg-black/40 text-[10px] font-black uppercase tracking-[0.2em] text-white/40 border border-white/5 rounded-2xl px-5 py-3 outline-none cursor-pointer hover:border-indigo-500/30 transition-all appearance-none"
-           >
-             <option value="newest">Latest Chronology</option>
-             <option value="oldest">Legacy Archives</option>
-           </select>
+        <div className="flex items-center gap-3 relative z-10">
+          {/* Sort Protocol */}
+          <div className="relative group/sort hidden lg:block">
+            <select
+              value={sortMode}
+              onChange={e => { setSortMode(e.target.value as SortMode); setImages([]); setLastDoc(null); }}
+              className="h-11 bg-background border border-white/5 rounded-xl px-4 pr-10 text-[10px] font-black uppercase text-white/70 outline-none hover:bg-white/5 hover:border-primary/30 transition-all cursor-pointer min-w-[180px] appearance-none tracking-widest"
+            >
+              <option value="newest">Latest Chronology</option>
+              <option value="oldest">Legacy Archives</option>
+            </select>
+            <Icons.chevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-3 h-3 text-white/20 pointer-events-none group-hover/sort:text-primary transition-colors" />
+          </div>
 
-           <div className="w-px h-8 bg-white/5" />
+          <div className="h-8 w-px bg-white/5 hidden md:block"></div>
 
-           <button
-             onClick={() => setIsGrouped(!isGrouped)}
-             className={`flex items-center gap-2.5 px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border ${isGrouped ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500/20 shadow-xl' : 'bg-black/40 text-white/20 border-white/5 hover:text-white hover:border-white/10'}`}
-           >
-             <Icons.stack className={`w-4 h-4 ${isGrouped ? 'animate-pulse' : ''}`} />
-             {isGrouped ? "Grouped View" : "Individual"}
-           </button>
-
-           <div className="w-px h-8 bg-white/5" />
-
-           <div className="flex items-center gap-1.5 bg-black/40 border border-white/5 rounded-2xl p-1.5">
-             {(['grid-2', 'grid-3', 'grid-4'] as ViewMode[]).map(m => (
-               <button
-                 key={m}
-                 onClick={() => setViewMode(m)}
-                 className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${viewMode === m ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
-               >
-                 {m.split('-')[1]}C
-               </button>
-             ))}
-             <button
-               onClick={() => setViewMode('list')}
-               className={`p-2 rounded-xl transition-all ${viewMode === 'list' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
-             >
-               <Icons.list size={16} />
-             </button>
-           </div>
-
-           <button
-             onClick={() => { setImages([]); setLastDoc(null); fetchImages(); }}
-             disabled={loading}
-             className="p-3 bg-black/40 rounded-2xl border border-white/5 text-white/20 hover:text-indigo-400 hover:border-indigo-500/30 transition-all active:scale-95 disabled:opacity-50"
-           >
-             <Icons.refresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-           </button>
+          <button
+            onClick={() => { setImages([]); setLastDoc(null); fetchImages(); }}
+            disabled={loading}
+            className="h-11 w-11 flex items-center justify-center bg-black/40 border border-white/5 rounded-xl text-white/20 hover:text-primary hover:border-primary/30 transition-all shadow-xl disabled:opacity-50"
+          >
+            <Icons.refresh className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
       </div>
 
       {/* ── Selection bar ────────────────────────────────────────── */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-5 px-6 py-4 bg-indigo-950/20 border border-indigo-500/20 rounded-[2rem] animate-fade-in-up backdrop-blur-3xl">
+        <div className="flex items-center gap-5 px-6 py-4 bg-primary/5 border border-primary/20 rounded-[2rem] animate-fade-in-up backdrop-blur-3xl">
           <div className="flex items-center gap-4">
-            <div className="w-9 h-9 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-sm font-black shadow-xl shadow-indigo-600/30">
+            <div className="w-9 h-9 rounded-2xl bg-primary flex items-center justify-center text-white text-sm font-black shadow-xl shadow-primary/30">
               {selectedIds.size}
             </div>
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-400">Artifacts Selected</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-primary">Artifacts Selected</span>
           </div>
           <div className="flex gap-2">
              <button onClick={selectAll} className="text-[9px] font-black uppercase tracking-[0.2em] text-white/30 hover:text-white transition-colors px-4 py-2 rounded-xl hover:bg-white/5 border border-transparent hover:border-white/5">
@@ -704,8 +732,8 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
       ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-60 border border-dashed border-white/5 rounded-[3rem] bg-white/[0.01] gap-8 text-center animate-fade-in group">
           <div className="relative">
-            <div className="absolute -inset-10 bg-indigo-500/10 blur-[100px] rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000"></div>
-            <Icons.image className="relative w-24 h-24 text-white/5 transition-colors group-hover:text-indigo-500/20" />
+            <div className="absolute -inset-10 bg-primary/10 blur-[100px] rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-1000"></div>
+            <Icons.image className="relative w-24 h-24 text-white/5 transition-colors group-hover:text-primary/20" />
           </div>
           <div className="space-y-3">
             <p className="text-sm font-black uppercase tracking-[0.5em] text-white/30">Ecosystem Sparse</p>
@@ -714,7 +742,7 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
           {(searchQuery || !isGrouped) && (
             <button 
               onClick={() => { setSearchQuery(''); setIsGrouped(true); }}
-              className="px-10 py-5 bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white text-[11px] font-black uppercase tracking-[0.3em] border border-indigo-500/20 rounded-[2rem] transition-all shadow-2xl active:scale-95 flex items-center gap-4 mx-auto"
+              className="px-10 py-5 bg-primary/10 hover:bg-primary text-primary hover:text-white text-[11px] font-black uppercase tracking-[0.3em] border border-primary/20 rounded-[2rem] transition-all shadow-2xl active:scale-95 flex items-center gap-4 mx-auto"
             >
               <Icons.refresh size={16} /> Restore Registry Stream
             </button>
@@ -755,9 +783,10 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
                       onDelete={() => setConfirmDeleteId(groupImages[0].id)}
                       deleting={groupImages.some(i => deletingId === i.id)}
                       onViewVariation={onViewVariation}
+                      activeThumbnailUrl={activeThumbnailUrl}
                     />
                     {groupImages.length > 1 && (
-                      <div className="absolute -bottom-2 -right-2 z-20 bg-indigo-600 px-3 py-1.5 rounded-xl text-[9px] font-black text-white shadow-2xl border border-white/20 pointer-events-none uppercase tracking-widest animate-in slide-in-from-right-2">
+                      <div className="absolute -bottom-2 -right-2 z-20 bg-primary px-3 py-1.5 rounded-xl text-[9px] font-black text-white shadow-2xl border border-white/20 pointer-events-none uppercase tracking-widest animate-in slide-in-from-right-2">
                         {groupImages.length} Fragments
                       </div>
                     )}
@@ -776,6 +805,7 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
                   onDelete={() => setConfirmDeleteId(img.id)}
                   deleting={deletingId === img.id}
                   onViewVariation={onViewVariation}
+                  activeThumbnailUrl={activeThumbnailUrl}
                 />
               ))
             )}

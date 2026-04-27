@@ -58,9 +58,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-[#0a0a0f]/80 backdrop-blur-2xl transition-all duration-500 animate-fade-in" onClick={onClose} />
+      <div className="absolute inset-0 bg-background/80 backdrop-blur-2xl transition-all duration-500 animate-fade-in" onClick={onClose} />
       
-      <div className="relative glass-card p-10 w-full max-w-md bg-[#12121a]/90 border-indigo-500/20 shadow-2xl animate-fade-in-up">
+      <div className="relative glass-card p-10 w-full max-w-md bg-[#12121a]/90 border-primary/20 shadow-2xl animate-fade-in-up">
         {/* Close Interaction */}
         <button 
             onClick={onClose} 
@@ -71,13 +71,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         {/* Branding Protocol */}
         <div className="flex flex-col items-center text-center gap-6 mb-10">
-          <div className="w-20 h-20 rounded-[2rem] flex items-center justify-center bg-indigo-500/10 border border-indigo-500/20 shadow-2xl shadow-indigo-500/10 relative group">
-             <div className="absolute inset-0 bg-indigo-500/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
-             <Icons.sparkles className="w-10 h-10 text-indigo-400 relative" />
+          <div className="w-20 h-20 rounded-[2rem] flex items-center justify-center bg-primary/10 border border-primary/20 shadow-2xl shadow-primary/10 relative group">
+             <div className="absolute inset-0 bg-primary/20 blur-2xl rounded-full opacity-0 group-hover:opacity-100 transition-opacity"></div>
+             <Icons.sparkles className="w-10 h-10 text-primary relative" />
           </div>
           <div>
              <h3 className="text-3xl font-black text-white uppercase tracking-tighter leading-none">{isLogin ? 'Ecosystem Login' : 'Initialise Identity'}</h3>
-             <p className="text-[10px] font-black text-indigo-400/40 uppercase tracking-[0.4em] mt-3 leading-none">Registry Intelligence Protocol</p>
+             <p className="text-[10px] font-black text-primary/40 uppercase tracking-[0.4em] mt-3 leading-none">Registry Intelligence Protocol</p>
           </div>
         </div>
 
@@ -93,13 +93,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <label className="text-[10px] font-black uppercase tracking-[0.3em] text-white/20 ml-1">Architect Mail</label>
             <div className="relative group">
               <div className="absolute inset-y-0 left-5 flex items-center pointer-events-none">
-                <Icons.user className="w-4 h-4 text-white/10 group-focus-within:text-indigo-400 transition-colors" />
+                <Icons.user className="w-4 h-4 text-white/10 group-focus-within:text-primary transition-colors" />
               </div>
               <input 
                 type="email" 
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full bg-black/40 border border-white/5 rounded-2xl pl-12 pr-5 py-4 text-xs text-white outline-none focus:border-indigo-500/30 transition-all font-medium placeholder:text-white/5"
+                className="w-full bg-black/40 border border-white/5 rounded-2xl pl-12 pr-5 py-4 text-xs text-white outline-none focus:border-primary/30 transition-all font-medium placeholder:text-white/5"
                 placeholder="architect@stillwater.io"
                 required
               />
@@ -109,13 +109,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <label className="text-[10px] font-black uppercase tracking-[0.3em] text-white/20 ml-1">Security Cipher</label>
             <div className="relative group">
               <div className="absolute inset-y-0 left-5 flex items-center pointer-events-none">
-                <Icons.zap className="w-4 h-4 text-white/10 group-focus-within:text-indigo-400 transition-colors" />
+                <Icons.zap className="w-4 h-4 text-white/10 group-focus-within:text-primary transition-colors" />
               </div>
               <input 
                 type="password" 
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full bg-black/40 border border-white/5 rounded-2xl pl-12 pr-5 py-4 text-xs text-white outline-none focus:border-indigo-500/30 transition-all font-medium placeholder:text-white/5"
+                className="w-full bg-black/40 border border-white/5 rounded-2xl pl-12 pr-5 py-4 text-xs text-white outline-none focus:border-primary/30 transition-all font-medium placeholder:text-white/5"
                 placeholder="••••••••"
                 required
               />
@@ -124,7 +124,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           <button 
             type="submit" 
             disabled={loading}
-            className="w-full py-5 rounded-2xl bg-indigo-600 hover:bg-indigo-500 shadow-xl shadow-indigo-600/20 text-[11px] font-black uppercase tracking-[0.4em] text-white transition-all flex justify-center items-center gap-3 active:scale-95 disabled:opacity-50"
+            className="w-full py-5 rounded-2xl bg-primary hover:bg-primary/80 shadow-xl shadow-primary/20 text-[11px] font-black uppercase tracking-[0.4em] text-white transition-all flex justify-center items-center gap-3 active:scale-95 disabled:opacity-50"
           >
             {loading ? <Icons.refresh className="w-4 h-4 animate-spin" /> : <Icons.arrowRight className="w-4 h-4" />}
             {isLogin ? 'Authenticate Node' : 'Establish Node'}
@@ -141,7 +141,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           type="button"
           onClick={handleGoogleAuth}
           disabled={loading}
-          className="w-full py-5 rounded-2xl bg-white text-black hover:bg-indigo-50 text-[11px] font-black uppercase tracking-[0.4em] transition-all flex justify-center items-center gap-3 active:scale-95 shadow-xl disabled:opacity-50"
+          className="w-full py-5 rounded-2xl bg-white text-black hover:bg-primary/5 text-[11px] font-black uppercase tracking-[0.4em] transition-all flex justify-center items-center gap-3 active:scale-95 shadow-xl disabled:opacity-50"
         >
           <Icons.google size={18} />
           Google Identity
@@ -149,7 +149,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         <p className="mt-10 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/20">
           {isLogin ? "No active identity?" : "Existing node detected?"}
-          <button type="button" onClick={() => setIsLogin(!isLogin)} className="ml-3 text-indigo-400 hover:text-white transition-colors">
+          <button type="button" onClick={() => setIsLogin(!isLogin)} className="ml-3 text-primary hover:text-white transition-colors">
             {isLogin ? 'Register Now' : 'Sign In'}
           </button>
         </p>

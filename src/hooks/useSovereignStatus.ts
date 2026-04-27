@@ -7,6 +7,7 @@ export interface SovereignStatus {
   overallStatus: 'green' | 'amber' | 'red';
   failingPolicies: string[];
   lastAudit: Date | null;
+  error?: boolean;
 }
 
 /**
@@ -49,6 +50,7 @@ export function useSovereignStatus() {
       }
     }, (error) => {
       console.error('[useSovereignStatus] Registry Connection Failed:', error);
+      setStatus(prev => ({ ...prev, error: true }));
     });
 
     return () => unsubscribe();

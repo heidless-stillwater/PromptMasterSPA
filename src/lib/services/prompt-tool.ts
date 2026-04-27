@@ -1,5 +1,5 @@
 export interface GenerationProgress {
-  type: 'progress' | 'image_ready' | 'complete' | 'error';
+  type: 'progress' | 'image_ready' | 'complete' | 'error' | 'status';
   current?: number;
   total?: number;
   message?: string;
@@ -18,6 +18,8 @@ export const triggerGeneration = async (
   promptSetID?: string,
   variables?: Record<string, { value: string, default: string }>,
   template?: string,
+  quality: string = 'standard',
+  referenceImages?: Array<{ data: string, mimeType: string, title?: string }>,
   signal?: AbortSignal
 ) => {
   try {
@@ -33,13 +35,14 @@ export const triggerGeneration = async (
         uid: userId,
         title: title, // Pass the blueprint title
         promptSetID: promptSetID, // Pass the lineage ID for grouping
-        quality: 'standard',
+        quality,
         aspectRatio: '16:9',
         promptType: 'freeform',
         count: 1,
         modality: 'image',
         variables, // Architectural metadata
-        template // Blueprint snapshot with tags
+        template, // Blueprint snapshot with tags
+        referenceImages
       }),
       signal
     });

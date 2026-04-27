@@ -1,6 +1,10 @@
 {
   "firestore": [
     {
+      "database": "(default)",
+      "rules": "firestore.rules"
+    },
+    {
       "database": "promptmaster-spa-db-0",
       "rules": "firestore.rules"
     },
@@ -10,6 +14,10 @@
     },
     {
       "database": "prompttool-db-0",
+      "rules": "firestore.rules"
+    },
+    {
+      "database": "promptaccreditation-db-0",
       "rules": "firestore.rules"
     }
   ],

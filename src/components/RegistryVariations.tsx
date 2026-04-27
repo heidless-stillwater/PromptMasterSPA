@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Icons } from './Icons';
 
 interface RegistryVariationsProps {
@@ -18,7 +19,7 @@ interface RegistryVariationsProps {
   setPreviewImageUrl: (url: string | null) => void;
   setPreviewTitle: (title: string) => void;
   setPreviewPrompt: (prompt: string | null) => void;
-  handleClone: (p: any) => void;
+  handleClone: (p: any, title?: string, compiled?: string) => void;
   toggleSelectVariation: (url: string) => void;
   onViewInGallery?: (img: any) => void;
 }
@@ -44,28 +45,105 @@ export function RegistryVariations({
   toggleSelectVariation,
   onViewInGallery
 }: RegistryVariationsProps) {
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{ top: number, left: number } | null>(null);
+  
+  const handleOpenMenu = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setMenuPosition({
+      top: rect.bottom + window.scrollY + 8,
+      left: rect.right + window.scrollX - 160 // Offset to align right
+    });
+    setActiveMenuId(activeMenuId === id ? null : id);
+  };
+
+  useEffect(() => {
+    const handleScrollOrClickOutside = () => setActiveMenuId(null);
+    if (activeMenuId) {
+      window.addEventListener('scroll', handleScrollOrClickOutside, true);
+      window.addEventListener('click', handleScrollOrClickOutside);
+    }
+    return () => {
+      window.removeEventListener('scroll', handleScrollOrClickOutside, true);
+      window.removeEventListener('click', handleScrollOrClickOutside);
+    };
+  }, [activeMenuId]);
+
+  const VariationActionsPopup = ({ url, title, promptValue, isOriginal, img }: { url: string, title: string, promptValue: string, isOriginal: boolean, img: any }) => {
+    if (!menuPosition) return null;
+
+    return createPortal(
+      <div 
+        className="fixed z-[9999] w-48 bg-[#12121a]/95 backdrop-blur-3xl border border-white/10 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)] p-2 animate-fade-in-up"
+        style={{ top: menuPosition.top, left: menuPosition.left }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button 
+          onClick={() => {
+            handleClone({ 
+              ...selectedPrompt, 
+              thumbnailUrl: url,
+              title: title,
+              template: isOriginal ? promptValue : (img.template || selectedPrompt?.template || promptValue)
+            }, undefined, promptValue);
+            setActiveMenuId(null);
+          }}
+          className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/5 rounded-xl transition-all"
+        >
+          <Icons.copy className="w-3.5 h-3.5" /> Clone Blueprint
+        </button>
+        
+        {onViewInGallery && url && (
+          <button 
+            onClick={() => {
+              onViewInGallery({ ...img, imageUrl: url, title: title, prompt: promptValue });
+              setActiveMenuId(null);
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/5 rounded-xl transition-all"
+          >
+            <Icons.external className="w-3.5 h-3.5" /> View Registry
+          </button>
+        )}
+        
+        {!isOriginal && (profile?.role === 'admin' || profile?.role === 'su' || (user && img.uid === user.uid)) && (
+          <button 
+            onClick={() => {
+              handleDeleteSelectedVariations(url);
+              setActiveMenuId(null);
+            }}
+            className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-rose-400 hover:text-white hover:bg-rose-600 rounded-xl transition-all mt-1 border-t border-white/5 pt-3"
+          >
+            <Icons.delete className="w-3.5 h-3.5" /> Decommission
+          </button>
+        )}
+      </div>,
+      document.body
+    );
+  };
 
   const renderCard = (img: any, isOriginal: boolean) => {
     const url = isOriginal ? (originalSnapshot?.url || (selectedPrompt?.id ? `https://api.dicebear.com/7.x/shapes/svg?seed=${selectedPrompt.id}` : '')) : img.url;
     const title = isOriginal ? (originalSnapshot?.title || selectedPrompt?.title || '<no title>') : (img.title || '<no title>');
     const promptValue = isOriginal ? (originalSnapshot?.prompt || selectedPrompt?.template || selectedPrompt?.prompts?.[0]) : img.prompt;
     const isActive = (url === selectedPrompt?.thumbnailUrl) || (isOriginal && !selectedPrompt?.thumbnailUrl && !url);
+    const isDense = ['grid-3', 'grid-4', 'grid-5', 'grid-6', 'grid-8'].includes(variationsViewMode);
 
     return (
       <div className={`flex group/card relative ${
         variationsViewMode.startsWith('grid') ? 'flex-col items-center gap-1.5 pb-2.5' : 
         'flex-col items-start gap-4 p-5'
-      } ${isActive ? 'bg-indigo-500/5 ring-1 ring-indigo-500/30' : 'bg-white/5'} hover:bg-white/10 rounded-[2.5rem] border border-white/5 transition-all duration-500 transform hover:scale-[1.01]`}>
+      } ${isActive ? 'bg-primary/5 ring-1 ring-primary/30' : 'bg-white/5'} hover:bg-white/10 rounded-[2.5rem] border border-white/5 transition-all duration-500 transform hover:scale-[1.01]`}>
         
         {isActive && (
-          <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-[60] bg-indigo-600 text-white text-[7px] font-black uppercase tracking-[0.3em] px-3 py-1 rounded-full shadow-2xl border border-white/20 animate-pulse">
+          <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-[60] bg-primary text-white text-[7px] font-black uppercase tracking-[0.3em] px-3 py-1 rounded-full shadow-2xl border border-white/20 animate-pulse">
             Active Node
           </div>
         )}
 
         <div
            className={`group/thumb relative rounded-[2rem] overflow-hidden border transition-all cursor-zoom-in shadow-2xl bg-black/40 shrink-0 ${
-             isActive ? 'border-indigo-500/40 shadow-indigo-500/10' : 'border-white/10 hover:border-white/20'
+             isActive ? 'border-primary/40 shadow-primary/10' : 'border-white/10 hover:border-white/20'
            } ${
              variationsViewMode === 'grid-8' ? 'w-full aspect-square rounded-xl' :
              variationsViewMode === 'grid-6' ? 'w-full aspect-square rounded-2xl' :
@@ -81,62 +159,78 @@ export function RegistryVariations({
           {!isOriginal && (
             <div 
               onClick={(e) => { e.stopPropagation(); toggleSelectVariation(url); }}
-              className={`absolute top-4 left-4 w-6 h-6 rounded-lg border z-40 flex items-center justify-center transition-all cursor-pointer ${selectedVariations.has(url) ? 'bg-indigo-600 border-indigo-500 shadow-xl' : 'border-white/10 bg-black/80 opacity-0 group-hover/thumb:opacity-100 backdrop-blur-md hover:border-white/40'}`}
+              className={`absolute top-4 left-4 w-6 h-6 rounded-lg border z-40 flex items-center justify-center transition-all cursor-pointer ${selectedVariations.has(url) ? 'bg-primary border-primary shadow-xl' : 'border-white/10 bg-black/80 opacity-0 group-hover/thumb:opacity-100 backdrop-blur-md hover:border-white/40'}`}
             >
                {selectedVariations.has(url) && <Icons.check className="w-3.5 h-3.5 text-white" />}
             </div>
           )}
 
-          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 transition-all duration-300 flex flex-col items-center justify-center gap-3 backdrop-blur-[2px] pointer-events-none group-hover/thumb:pointer-events-auto z-30">
+          <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 transition-all duration-300 flex items-center justify-center gap-3 backdrop-blur-[2px] pointer-events-none group-hover/thumb:pointer-events-auto z-30 ${isDense ? 'flex-row px-2' : 'flex-col'}`}>
             <button
-              className={`py-3 bg-white/5 hover:bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl text-[9px] font-black text-white uppercase tracking-[0.3em] transition-all shadow-2xl hover:scale-105 active:scale-95 ${variationsViewMode.startsWith('grid') ? 'w-36' : 'w-12 h-10 text-[8px] px-2'}`}
+              className={`bg-white/5 hover:bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl font-black text-white uppercase tracking-[0.3em] transition-all shadow-2xl hover:scale-105 active:scale-95 ${isDense ? 'p-3 rounded-xl' : (variationsViewMode.startsWith('grid') ? 'w-36 py-3 text-[9px]' : 'w-12 h-10 text-[8px] px-2')}`}
               onClick={(e) => { e.stopPropagation(); setPreviewImageUrl(url); setPreviewTitle(title); setPreviewPrompt(promptValue || null); }}
+              title="Immerse Vision"
             >
-              {variationsViewMode.startsWith('grid') ? 'Immerse Vision' : <Icons.eye className="w-3.5 h-3.5 mx-auto" />}
+              {isDense || !variationsViewMode.startsWith('grid') ? <Icons.eye className="w-4 h-4" /> : 'Immerse Vision'}
             </button>
             <button
-              className={`py-3 bg-indigo-600/80 hover:bg-indigo-600 border border-indigo-500/20 rounded-2xl text-[9px] font-black text-white uppercase tracking-[0.3em] transition-all shadow-2xl flex items-center justify-center gap-2 hover:scale-105 active:scale-95 ${variationsViewMode.startsWith('grid') ? 'w-36' : 'w-12 h-10 text-[8px] px-2'}`}
+              className={`${isActive ? 'bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border-rose-500/20' : 'bg-indigo-600/80 hover:bg-indigo-600 text-white border-indigo-500/20'} backdrop-blur-xl rounded-2xl font-black uppercase tracking-[0.3em] transition-all shadow-2xl flex items-center justify-center gap-2 hover:scale-105 active:scale-95 ${isDense ? 'p-3 rounded-xl' : (variationsViewMode.startsWith('grid') ? 'w-36 py-3 text-[9px]' : 'w-12 h-10 text-[8px] px-2')}`}
               onClick={(e) => { e.stopPropagation(); handleAssetSelection(url, title, promptValue, !isOriginal ? img.variables : undefined); }}
+              title={isActive ? "Deselect Architecture" : "Standardize Architecture"}
             >
-              <Icons.check className="w-3.5 h-3.5" />{variationsViewMode.startsWith('grid') ? ' Standardize' : ''}
+              {isActive ? <Icons.close className="w-4 h-4" /> : <Icons.check className="w-4 h-4" />}
+              {!isDense && variationsViewMode.startsWith('grid') && (isActive ? ' Deselect' : ' Standardize')}
             </button>
+            
+            {isDense && (
+              <button 
+                onClick={(e) => handleOpenMenu(e, url)}
+                className={`p-3 rounded-xl border transition-all backdrop-blur-xl shadow-2xl ${activeMenuId === url ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-black/80 border-white/5 text-white/40 hover:text-indigo-400 hover:border-indigo-500/30'}`}
+                title="Asset Actions"
+              >
+                <Icons.more className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
-          <div className="absolute top-5 right-5 z-50 flex flex-col gap-2 opacity-0 group-hover/thumb:opacity-100 transition-all translate-x-3 group-hover/thumb:translate-x-0 pointer-events-none group-hover/thumb:pointer-events-auto">
-             <button 
-               onClick={(e) => { 
-                 e.stopPropagation(); 
-                 handleClone({ 
-                   ...selectedPrompt, 
-                   thumbnailUrl: url,
-                   title: title,
-                   template: promptValue
-                 }); 
-               }}
-               className="w-10 h-10 flex items-center justify-center bg-black/80 hover:bg-indigo-600/40 text-white/40 hover:text-indigo-400 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-all backdrop-blur-xl shadow-2xl"
-               title="Clone Blueprint"
-             >
-               <Icons.copy className="w-4 h-4" />
-             </button>
-             {onViewInGallery && url && (
-               <button 
-                  onClick={(e) => { e.stopPropagation(); onViewInGallery({ ...img, imageUrl: url, title: title, prompt: promptValue }); }}
+          {!isDense && (
+            <div className="absolute top-5 right-5 z-50 flex flex-col gap-2 opacity-0 group-hover/thumb:opacity-100 transition-all translate-x-3 group-hover/thumb:translate-x-0 pointer-events-none group-hover/thumb:pointer-events-auto">
+                <button 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    handleClone({ 
+                      ...selectedPrompt, 
+                      thumbnailUrl: url,
+                      title: title,
+                      template: isOriginal ? promptValue : (img.template || selectedPrompt?.template || promptValue)
+                    }, undefined, promptValue); 
+                  }}
                   className="w-10 h-10 flex items-center justify-center bg-black/80 hover:bg-indigo-600/40 text-white/40 hover:text-indigo-400 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-all backdrop-blur-xl shadow-2xl"
-                  title="View Registry"
-               >
-                 <Icons.external className="w-4 h-4" />
-               </button>
-             )}
-             {!isOriginal && (profile?.role === 'admin' || profile?.role === 'su' || (user && img.uid === user.uid)) && (
-               <button 
-                 onClick={(e) => { e.stopPropagation(); handleDeleteSelectedVariations(url); }}
-                 className="w-10 h-10 flex items-center justify-center bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-xl border border-rose-500/20 transition-all backdrop-blur-xl shadow-2xl"
-                 title="Decommission Node"
-               >
-                 <Icons.delete className="w-4 h-4" />
-               </button>
-             )}
-          </div>
+                  title="Clone Blueprint"
+                >
+                  <Icons.copy className="w-4 h-4" />
+                </button>
+                {onViewInGallery && url && (
+                  <button 
+                      onClick={(e) => { e.stopPropagation(); onViewInGallery({ ...img, imageUrl: url, title: title, prompt: promptValue }); }}
+                      className="w-10 h-10 flex items-center justify-center bg-black/80 hover:bg-indigo-600/40 text-white/40 hover:text-indigo-400 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-all backdrop-blur-xl shadow-2xl"
+                      title="View Registry"
+                  >
+                    <Icons.external className="w-4 h-4" />
+                  </button>
+                )}
+                {!isOriginal && (profile?.role === 'admin' || profile?.role === 'su' || (user && img.uid === user.uid)) && (
+                  <button 
+                    onClick={(e) => { e.stopPropagation(); handleDeleteSelectedVariations(url); }}
+                    className="w-10 h-10 flex items-center justify-center bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-xl border border-rose-500/20 transition-all backdrop-blur-xl shadow-2xl"
+                    title="Decommission Node"
+                  >
+                    <Icons.delete className="w-4 h-4" />
+                  </button>
+                )}
+            </div>
+          )}
+          {activeMenuId === url && <VariationActionsPopup url={url} title={title} promptValue={promptValue} isOriginal={isOriginal} img={img} />}
         </div>
 
         <div className={`flex-1 w-full min-w-0 flex flex-col ${variationsViewMode.startsWith('grid') ? 'items-center text-center' : 'items-start text-left'} gap-2 px-2`}>

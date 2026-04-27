@@ -1,3 +1,4 @@
+import React from 'react';
 import {
     Loader2,
     Download,
@@ -71,7 +72,9 @@ import {
     Send,
     ZoomIn,
     Edit3,
-    UploadCloud
+    UploadCloud,
+    Terminal,
+    Crosshair as Target
 } from "lucide-react"
 
 // Twitter/X icon (removed from lucide-react v1)
@@ -201,5 +204,7 @@ export const Icons = {
     zoomIn: ZoomIn,
     edit3: Edit3,
     uploadCloud: UploadCloud,
-    camera: Camera
+    camera: Camera,
+    terminal: Terminal,
+    target: Target
 }

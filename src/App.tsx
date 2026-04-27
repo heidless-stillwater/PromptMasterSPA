@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Routes, Route, useSearchParams, useLocation } from 'react-router-dom';
+import { Routes, Route, useSearchParams, useLocation, useNavigate } from 'react-router-dom';
 import PromptMaster from './components/PromptMaster';
 import AdminConsole from './components/AdminConsole';
 import { useAuth } from './contexts/AuthContext';
@@ -12,7 +12,12 @@ function App() {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'blueprints' | 'exemplars' | 'gallery'>('blueprints');
   const location = useLocation();
+  const navigate = useNavigate();
   const isAdminPath = location.pathname === '/admin';
+
+  // Use environment-aware URL for ecosystem navigation
+  const RESOURCES_URL = import.meta.env.VITE_PROMPTRESOURCES_URL || 'http://localhost:3002';
+  const THIS_APP_URL = import.meta.env.VITE_APP_URL || 'http://localhost:5173';
 
   const [confirmModal, setConfirmModal] = useState<{ 
     isOpen: boolean; 
@@ -21,6 +26,11 @@ function App() {
     onConfirm?: () => void; 
     isDanger?: boolean; 
     saving?: boolean;
+    preview?: {
+        thumbnailUrl?: string;
+        template?: string;
+        visionInstructions?: string;
+    };
     customButtons?: Array<{
         label: string;
         onClick: () => void;
@@ -29,9 +39,9 @@ function App() {
   } | null>(null);
 
   if (loading) return (
-    <div className="min-h-screen bg-[#0a0a0f] flex flex-col items-center justify-center">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center">
       <div className="flex flex-col items-center gap-4">
-        <Icons.sparkles className="text-indigo-500 w-12 h-12 animate-pulse" />
+        <Icons.sparkles className="text-primary w-12 h-12 animate-pulse" />
         <div className="text-[10px] font-black uppercase tracking-[0.3em] text-white/20">Initialising Core Registry</div>
       </div>
     </div>
@@ -66,12 +76,12 @@ function App() {
   const isVerifying = profile && !isAdmin && !masterData && !isJustSubscribed && activeSuites.length === 0;
 
   if (isVerifying) return (
-    <div className="min-h-screen bg-[#0a0a0f] flex flex-col items-center justify-center">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center">
       <div className="flex flex-col items-center gap-6">
         <Icons.spinner className="text-primary w-10 h-10 animate-spin" />
         <div className="flex flex-col items-center">
           <div className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] mb-1">Ecosystem Check</div>
-          <div className="text-xs font-bold text-indigo-400">Verifying Entitlements...</div>
+          <div className="text-xs font-bold text-primary/80">Verifying Entitlements...</div>
         </div>
       </div>
     </div>
@@ -79,24 +89,24 @@ function App() {
 
   if (!profile && !loading) {
      return (
-        <div className="min-h-screen bg-[#0a0a0f] text-white selection:bg-indigo-500/30 font-inter relative overflow-hidden flex items-center justify-center p-6">
+        <div className="min-h-screen bg-background text-white selection:bg-primary/30 font-inter relative overflow-hidden flex items-center justify-center p-6">
             <div className="absolute inset-0 z-0">
-                <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-50" />
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-indigo-500/10 rounded-full blur-[150px]" />
+                <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-accent/10 opacity-50" />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-primary/10 rounded-full blur-[150px]" />
             </div>
 
             <div className="max-w-xl w-full relative z-10 glass-card p-12 overflow-hidden group">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl -mr-32 -mt-32 transition-all duration-1000 group-hover:bg-indigo-500/20" />
+                <div className="absolute top-0 right-0 w-64 h-64 bg-primary/10 rounded-full blur-3xl -mr-32 -mt-32 transition-all duration-1000 group-hover:bg-primary/20" />
                 
                 <div className="flex flex-col items-center text-center space-y-8">
-                    <div className="p-5 bg-indigo-500/10 border border-indigo-500/20 rounded-3xl shadow-2xl shadow-indigo-500/20">
-                        <Icons.sparkles className="w-10 h-10 text-indigo-400" />
+                    <div className="p-5 bg-primary/10 border border-primary/20 rounded-3xl shadow-2xl shadow-primary/20">
+                        <Icons.sparkles className="w-10 h-10 text-primary/80" />
                     </div>
                     
                     <div className="space-y-3">
                         <div className="premium-label">Registry Node 01</div>
                         <h2 className="text-4xl md:text-5xl font-black tracking-tighter text-white leading-tight">
-                            Identity <br /><span className="text-indigo-400">Verification</span>
+                            Identity <br /><span className="text-primary/80">Verification</span>
                         </h2>
                         <p className="text-white/40 font-medium text-sm leading-relaxed max-w-sm mx-auto">
                             Sign in to synchronise your Pro Suite entitlements and access the global blueprint registry.
@@ -105,7 +115,7 @@ function App() {
 
                     <button
                         onClick={login}
-                        className="h-16 w-full rounded-2xl bg-indigo-600 border border-indigo-500 text-white font-black uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20 active:scale-95 flex items-center justify-center gap-3"
+                        className="h-16 w-full rounded-2xl bg-primary border border-primary text-white font-black uppercase tracking-widest hover:bg-primary/80 transition-all shadow-xl shadow-primary/20 active:scale-95 flex items-center justify-center gap-3"
                     >
                         <Icons.google size={20} /> Authorise Session
                     </button>
@@ -117,9 +127,9 @@ function App() {
 
   if (!hasRegistryAccess) {
     return (
-        <div className="min-h-screen bg-[#0a0a0f] text-white selection:bg-indigo-500/30 font-inter relative overflow-hidden flex items-center justify-center p-6">
+        <div className="min-h-screen bg-background text-white selection:bg-primary/30 font-inter relative overflow-hidden flex items-center justify-center p-6">
             <div className="absolute inset-0 z-0">
-                <div className="absolute inset-0 bg-gradient-to-br from-rose-500/10 via-transparent to-indigo-500/10 opacity-50" />
+                <div className="absolute inset-0 bg-gradient-to-br from-rose-500/10 via-transparent to-primary/10 opacity-50" />
                 <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-rose-500/5 rounded-full blur-[150px]" />
             </div>
 
@@ -143,15 +153,15 @@ function App() {
 
                     <div className="w-full flex flex-col gap-4">
                         <button
-                            onClick={() => window.location.href = `http://localhost:3002/pricing?returnUrl=${encodeURIComponent(window.location.origin)}`}
-                            className="h-16 w-full rounded-2xl bg-indigo-600 border border-indigo-500 text-white font-black uppercase tracking-widest hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20 active:scale-95"
+                            onClick={() => window.location.href = `${RESOURCES_URL}/pricing?returnUrl=${encodeURIComponent(window.location.origin)}`}
+                            className="h-16 w-full rounded-2xl bg-primary border border-primary text-white font-black uppercase tracking-widest hover:bg-primary/80 transition-all shadow-xl shadow-primary/20 active:scale-95"
                         >
                             Upgrade to Pro Suite
                         </button>
                         
                         <div className="p-4 bg-black/40 border border-white/5 rounded-2xl text-left">
                             <div className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-1">Authenticated Node</div>
-                            <div className="text-xs text-indigo-400 font-mono truncate mb-3">{user?.email}</div>
+                            <div className="text-xs text-primary/80 font-mono truncate mb-3">{user?.email}</div>
                             <div className="flex items-center gap-2">
                                 <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
                                 <span className="text-[9px] font-bold uppercase tracking-widest text-white/40">Standard Member Access Only</span>
@@ -180,29 +190,63 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0f] text-white selection:bg-indigo-500/30 font-inter">
-      <Header />
+    <div className="min-h-screen bg-background text-white selection:bg-primary/30 font-inter">
+      <Header setActiveTab={setActiveTab} />
       <EcosystemSwitcher />
 
       {/* ── CINEMATIC HERO COVER ── */}
       <div className="relative w-full h-auto overflow-hidden flex flex-col px-6">
           {/* Background Layer (Blurred Telemetry) */}
           <div className="absolute inset-0 z-0">
-              <div className="w-full h-full bg-[#0a0a0f]">
-                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 via-transparent to-purple-500/10 opacity-50" />
-                  <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-500/5 rounded-full blur-[120px] -mr-48 -mt-48" />
+              <div className="w-full h-full bg-background">
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-accent/10 opacity-50" />
+                  <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary/5 rounded-full blur-[120px] -mr-48 -mt-48" />
               </div>
           </div>
 
-          <div className="max-w-7xl mx-auto relative z-10 flex flex-col gap-8 pt-24 pb-8 w-full">
+          <div className="max-w-7xl mx-auto relative z-10 flex flex-col gap-12 pt-24 pb-8 w-full">
               <div className="flex flex-col gap-2 animate-fade-in">
-                  <div className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.5em] mb-2">Stillwater Protocol / Registry</div>
+                  <div className="text-[11px] font-black text-primary uppercase tracking-[0.5em] mb-2">Stillwater Protocol / Registry</div>
                   <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none">
                       {isAdminPath ? 'Administration Cluster' : 
                        activeTab === 'blueprints' ? 'Blueprint Registry' : 
                        activeTab === 'exemplars' ? 'Exemplars' : 
                        'Personal Gallery'}
                   </h1>
+              </div>
+
+              {/* Global Tab Switcher */}
+              <div className="flex gap-12 border-b border-white/5 pb-4">
+                  <button 
+                      onClick={() => {
+                        setActiveTab('blueprints');
+                        navigate('/');
+                      }}
+                      className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'blueprints' ? 'text-primary border-primary' : 'text-white/20 border-transparent hover:text-white'}`}
+                  >
+                      <Icons.grid className="w-4 h-4" />
+                      Blueprint Registry
+                  </button>
+                  <button 
+                      onClick={() => {
+                        setActiveTab('exemplars');
+                        navigate('/');
+                      }}
+                      className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'exemplars' ? 'text-primary border-primary' : 'text-white/20 border-transparent hover:text-white'}`}
+                  >
+                      <Icons.history className="w-4 h-4" />
+                      Historical Exemplars
+                  </button>
+                  <button 
+                      onClick={() => {
+                        setActiveTab('gallery');
+                        navigate('/');
+                      }}
+                      className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'gallery' ? 'text-primary border-primary' : 'text-white/20 border-transparent hover:text-white'}`}
+                  >
+                      <Icons.image className="w-4 h-4" />
+                      Asset Gallery
+                  </button>
               </div>
           </div>
       </div>
@@ -294,7 +338,44 @@ function App() {
                    <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">Architecture Safety Guard</p>
                 </div>
              </div>
-             <p className="text-sm text-gray-400 leading-relaxed mb-8">{confirmModal.message}</p>
+             <p className="text-sm text-gray-400 leading-relaxed mb-6">{confirmModal.message}</p>
+
+             {confirmModal.preview && (
+               <div className="mb-8 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                  <div className="flex gap-4 items-start pb-4 border-b border-white/5">
+                     {confirmModal.preview.thumbnailUrl && (
+                        <div className="w-24 h-24 rounded-2xl overflow-hidden border border-white/10 shrink-0 bg-black/40">
+                             <img src={confirmModal.preview.thumbnailUrl} className="w-full h-full object-contain" alt="Preview" />
+                        </div>
+                     )}
+                     <div className="flex-1 min-w-0">
+                        <p className="text-[9px] font-black text-indigo-400/40 uppercase tracking-[0.3em] mb-2">Neural Identity</p>
+                        <p className="text-[11px] font-bold text-white/90 truncate uppercase tracking-tighter">
+                            {confirmModal.title.replace('Clone ', '')}
+                        </p>
+                     </div>
+                  </div>
+
+                  <div className="space-y-3">
+                     {confirmModal.preview.template && (
+                        <div className="space-y-1.5">
+                           <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.3em]">Structural Template</p>
+                           <div className="p-3 bg-black/40 border border-white/5 rounded-xl font-mono text-[9px] text-indigo-300/80 leading-relaxed overflow-x-auto whitespace-pre-wrap break-words max-h-24 custom-scrollbar">
+                              {confirmModal.preview.template}
+                           </div>
+                        </div>
+                     )}
+                     {confirmModal.preview.visionInstructions && (
+                        <div className="space-y-1.5">
+                           <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.3em]">Compiled Vision Instructions</p>
+                           <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl font-mono text-[9px] text-white/60 leading-relaxed overflow-x-auto whitespace-pre-wrap break-words max-h-24 custom-scrollbar">
+                              {confirmModal.preview.visionInstructions}
+                           </div>
+                        </div>
+                     )}
+                  </div>
+               </div>
+             )}
              <div className="grid grid-cols-2 gap-4">
                  {confirmModal.customButtons ? (
                      confirmModal.customButtons.map((btn: any, idx: number) => (

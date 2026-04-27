@@ -1,31 +1,38 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // User Profile Access
-    match /users/{userId} {
+    // User Profile Access (Recursive for Credits/Metadata)
+    match /users/{userId}/{document=**} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Master Resources Pool
-    match /resources/{document=**} {
-      allow read: if true;
-      // ONLY Admin/SU can update the master ecosystem bank
-      allow write: if request.auth != null; 
-    }
-    
-    // Generation History (Owner only)
-    match /generations/{document=**} {
-      allow read, write: if request.auth != null && (resource == null || resource.data.uid == request.auth.uid) ;
+    // Legacy mapping (if any collection used userId directly)
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Personal Blueprints (Owner only & Registry Suite required)
-    match /blueprints/{blueprintId} {
-      allow read: if request.auth != null && 
-                  (resource == null || resource.data.uid == request.auth.uid) ;
-      allow write: if request.auth != null && 
-                   (get(/databases/(default)/documents/users/$(request.auth.uid)).data.subscriptionMetadata.activeSuites.hasAny(['registry', 'pro']) || 
-                    get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'su']) &&
-                   (request.resource.data.uid == request.auth.uid || resource.data.uid == request.auth.uid);
+    // Master Registry Primary Collections
+    match /blueprints/{id} {
+      allow read, write: if request.auth != null;
+    }
+
+    match /projects/{id} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Sovereign Registry (Policies & Compliance)
+    match /policies/{policyId} {
+      allow read: if true;
+    }
+
+    // Ecosystem Exemplars (League Entries)
+    match /leagueEntries/{entryId} {
+      allow read: if true;
+    }
+
+    // System Configuration & Global Secrets
+    match /system/{document=**} {
+      allow read, write: if request.auth != null;
     }
   }
 }

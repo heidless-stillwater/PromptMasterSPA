@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { onAuthStateChanged, type User, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, setDoc, onSnapshot, serverTimestamp, updateDoc, increment } from 'firebase/firestore';
 import { auth, db, toolDb, resourcesDb } from '../lib/firebase';
@@ -47,6 +47,7 @@ interface AuthContextType {
   hasConflict: boolean;
   conflicts: string[];
   masterData: any;
+  updateProfile: (data: Partial<UserProfile>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({ 
@@ -59,7 +60,8 @@ const AuthContext = createContext<AuthContextType>({
   syncWithMaster: async () => {},
   hasConflict: false,
   conflicts: [],
-  masterData: null
+  masterData: null,
+  updateProfile: async () => {}
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -70,6 +72,93 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [conflicts, setConflicts] = useState<string[]>([]);
   const [masterData, setMasterData] = useState<any>(null);
 
+  // 1. Memoized Actions (Declared before usage in Effects)
+  const syncWithMaster = useCallback(async () => {
+    if (!user || !masterData) return;
+    const userRef = doc(db, 'users', user.uid);
+    await updateDoc(userRef, {
+        role: masterData.role || 'member',
+        displayName: masterData.displayName || profile?.displayName,
+        updatedAt: serverTimestamp(),
+        isSynced: true
+    });
+    setHasConflict(false);
+    setConflicts([]);
+  }, [user, masterData, profile?.displayName]);
+
+  const login = useCallback(async () => {
+    const provider = new GoogleAuthProvider();
+    await signInWithPopup(auth, provider);
+  }, []);
+
+  const logout = useCallback(async () => {
+    await signOut(auth);
+  }, []);
+
+  const topUpCredits = useCallback(async (amount: number = 250) => {
+    if (!user) return;
+    try {
+        const creditsRef = doc(toolDb, 'users', user.uid, 'data', 'credits');
+        await updateDoc(creditsRef, {
+            balance: increment(amount)
+        });
+    } catch (err: any) {
+        console.error("Top-up failed", err);
+    }
+  }, [user]);
+
+  const updateProfile = useCallback(async (data: Partial<UserProfile>) => {
+    if (!user) return;
+    try {
+        const localRef = doc(db, 'users', user.uid);
+        const masterRef = doc(toolDb, 'users', user.uid);
+        
+        const updates = {
+            ...data,
+            updatedAt: serverTimestamp()
+        };
+
+        await Promise.all([
+            updateDoc(localRef, updates),
+            updateDoc(masterRef, updates)
+        ]);
+        console.log('[AuthContext] Profile synchronized across ecosystem');
+    } catch (err) {
+        console.error("Profile update failed", err);
+        throw err;
+    }
+  }, [user]);
+
+  // 2. Conflict Detection Engine
+  useEffect(() => {
+    if (!profile || !masterData || !user) return;
+
+    const newConflicts: string[] = [];
+    let autoHealPossible = true;
+    
+    // Master Alignment Rules
+    if (masterData.role && profile.role !== masterData.role) {
+        newConflicts.push(`Role mismatch (Master: ${masterData.role} vs Local: ${profile.role})`);
+        autoHealPossible = false; // Role changes require explicit manual sync
+    }
+    
+    const hasDisplayNameConflict = masterData.displayName && profile.displayName !== masterData.displayName;
+    const hasPhotoConflict = masterData.photoURL && profile.photoURL !== masterData.photoURL;
+
+    if (hasDisplayNameConflict) newConflicts.push('DisplayName mismatch');
+    if (hasPhotoConflict) newConflicts.push('PhotoURL mismatch');
+
+    setConflicts(newConflicts);
+    setHasConflict(newConflicts.length > 0);
+
+    // Auto-Healing Logic
+    if (newConflicts.length > 0 && autoHealPossible && !profile.isSynced) {
+        console.log('[Sovereign Heartbeat] Auto-reconciling identity metadata drift...');
+        syncWithMaster();
+    }
+  }, [profile?.role, profile?.displayName, profile?.photoURL, profile?.isSynced, masterData, user, syncWithMaster]);
+
+  // 3. Heartbeat Listeners
   useEffect(() => {
     let unsubscribeSPA: () => void = () => {};
     let unsubscribeTool: () => void = () => {};
@@ -79,7 +168,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(currentUser);
       
       if (currentUser) {
-        // 1. Sync & Listen to SPA-specific profile (STRICTLY Metadata & Role)
+        // Listen to SPA-specific profile
         const userRef = doc(db, 'users', currentUser.uid);
         unsubscribeSPA = onSnapshot(userRef, (docSnap) => {
            if (docSnap.exists()) {
@@ -109,54 +198,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 isSynced: true
              });
            }
-           // Handshake: Data is now arriving
            setLoading(false);
         });
 
-        // 2. Listen to Ecosystem Master Status (Subscription & Role Authority)
+        // Listen to Ecosystem Master
         const toolUserRef = doc(toolDb, 'users', currentUser.uid);
         unsubscribeTool = onSnapshot(toolUserRef, (docSnap) => {
           if (docSnap.exists()) {
             const data = docSnap.data();
             setMasterData(data);
-            setProfile(prev => {
-              // Pro-Priority Logic: Never let a 'free' status from a sync delay overwrite a known 'pro' status
-              const currentSub = prev?.subscription || 'free';
-              if (currentSub === 'pro' && (!data.subscription || data.subscription === 'free')) {
-                return prev as UserProfile;
-              }
-              return {
-                ...prev as UserProfile,
-                subscription: data.subscription || 'free',
-                // Also merge any suite metadata if available in this DB
-                subscriptionMetadata: data.subscriptionMetadata || prev?.subscriptionMetadata,
-                suiteSubscription: data.suiteSubscription || prev?.suiteSubscription
-              };
-            });
           }
         });
 
-        // 3. Listen to Primary Resources Database (The Source of Truth)
-        const resourcesUserRef = doc(resourcesDb, 'users', currentUser.uid);
-        onSnapshot(resourcesUserRef, (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setProfile(prev => ({
-              ...prev as UserProfile,
-              role: data.role || prev?.role || 'member', // INHERIT MASTER ROLE
-              subscription: data.subscription || prev?.subscription,
-              subscriptionMetadata: data.subscriptionMetadata || prev?.subscriptionMetadata,
-              suiteSubscription: data.suiteSubscription || prev?.suiteSubscription
-            }));
-            // Also update masterData if it's currently missing role info
-            setMasterData((prev: any) => ({
-              ...prev,
-              role: data.role || prev?.role || 'member'
-            }));
-          }
-        });
-
-        // 3. Listen to Credits (THE EXCLUSIVE SOURCE OF TRUTH)
+        // Listen to Credits
         const creditsRef = doc(toolDb, 'users', currentUser.uid, 'data', 'credits');
         unsubscribeCredits = onSnapshot(creditsRef, (docSnap) => {
           if (docSnap.exists()) {
@@ -166,7 +220,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const used = data.dailyAllowanceUsed || 0;
             const remainingDaily = Math.max(0, allowance - used);
             
-            // Align with PromptTool's "Available Credits" logic
             setProfile(prev => ({
               ...prev as UserProfile,
               credits: balance + remainingDaily,
@@ -191,61 +244,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // Conflict Detection Engine
-  useEffect(() => {
-    if (!profile || !masterData) return;
-
-    const newConflicts: string[] = [];
-    
-    // Master Alignment Rules
-    if (masterData.role && profile.role !== masterData.role) {
-        newConflicts.push(`Role mismatch (Master: ${masterData.role} vs Local: ${profile.role})`);
-    }
-    if (masterData.displayName && profile.displayName !== masterData.displayName) {
-        newConflicts.push('DisplayName mismatch');
-    }
-
-    setConflicts(newConflicts);
-    setHasConflict(newConflicts.length > 0);
-  }, [profile?.role, profile?.displayName, masterData]);
-
-  const login = async () => {
-    const provider = new GoogleAuthProvider();
-    await signInWithPopup(auth, provider);
-  };
-
-  const logout = async () => {
-    await signOut(auth);
-  };
-
-  const syncWithMaster = async () => {
-    if (!user || !masterData) return;
-    const userRef = doc(db, 'users', user.uid);
-    await updateDoc(userRef, {
-        role: masterData.role || 'member',
-        displayName: masterData.displayName || profile?.displayName,
-        updatedAt: serverTimestamp(),
-        isSynced: true
-    });
-    setHasConflict(false);
-    setConflicts([]);
-  };
-
-  const topUpCredits = async (amount: number = 250) => {
-    if (!user) return;
-    try {
-        const creditsRef = doc(toolDb, 'users', user.uid, 'data', 'credits');
-        await updateDoc(creditsRef, {
-            balance: increment(amount)
-        });
-    } catch (err: any) {
-        console.error("Top-up failed", err);
-    }
-  };
-
   return (
     <AuthContext.Provider value={{ 
-        user, profile, loading, login, logout, topUpCredits, syncWithMaster, hasConflict, conflicts, masterData 
+        user, profile, loading, login, logout, topUpCredits, syncWithMaster, hasConflict, conflicts, masterData, updateProfile 
     }}>
       {children}
     </AuthContext.Provider>

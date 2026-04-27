@@ -15,10 +15,11 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
-// Triple-Database Architecture Mapping
-export const db = getFirestore(app, 'promptmaster-spa-db-0');     // Registry Primary
-export const toolDb = getFirestore(app, 'prompttool-db-0');        // Studio Satellite
-export const resourcesDb = getFirestore(app, 'promptresources-db-0'); // Hub Satellite (Source of Truth)
+// Multi-Authority Architecture Mapping
+export const db = getFirestore(app, 'promptmaster-spa-db-0');     // Private Authority (Dashboard Settings/Metrics)
+export const registryDb = getFirestore(app, 'prompttool-db-0');   // Shared Authority (Ecosystem Blueprints/Images)
+export const toolDb = registryDb;                                  // Alias for legacy compatibility
+export const resourcesDb = getFirestore(app, 'promptresources-db-0'); // Reference Library
 export const accDb = getFirestore(app, 'promptaccreditation-db-0');   // Sovereign Registry (Compliance Engine)
 
 export const storage = getStorage(app);

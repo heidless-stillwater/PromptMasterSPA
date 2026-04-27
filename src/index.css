@@ -3,14 +3,14 @@
 @import url('./stillwater-tokens.css');
 
 @theme {
-  --color-primary: #6366f1;
-  --color-accent: #8b5cf6;
-  --color-background: #0a0a0f;
-  --color-background-secondary: #0d0d12;
-  --color-foreground: #f5f5f7;
-  --color-foreground-muted: #a1a1aa;
+  --color-primary: #0d9488;
+  --color-accent: #10b981;
+  --color-background: #0f172a;
+  --color-background-secondary: #1e293b;
+  --color-foreground: #f8fafc;
+  --color-foreground-muted: #94a3b8;
   
-  --background-image-brand-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
+  --background-image-brand-gradient: linear-gradient(135deg, var(--color-primary), var(--color-accent));
   
   --animate-shimmer: shimmer 2s linear infinite;
   --animate-fade-in-up: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
@@ -115,11 +115,11 @@ h1, h2, h3, h4, h5, h6 {
 
 /* Forms & UI Elements */
 .search-input-cinematic {
-  @apply w-full h-11 pl-12 pr-12 bg-black/40 border border-white/5 rounded-2xl text-white text-sm outline-none focus:border-indigo-500/50 transition-all font-medium tracking-tight;
+  @apply w-full h-11 pl-12 pr-12 bg-black/40 border border-white/5 rounded-2xl text-white text-sm outline-none focus:border-primary/50 transition-all font-medium tracking-tight;
 }
 
 select.cinematic {
-  @apply bg-[#12121a] text-gray-400 border border-white/10 rounded-xl px-4 py-2 outline-none cursor-pointer transition-all duration-300;
+  @apply bg-background text-gray-400 border border-white/10 rounded-xl px-4 py-2 outline-none cursor-pointer transition-all duration-300;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='currentColor'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
   background-repeat: no-repeat;

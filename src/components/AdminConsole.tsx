@@ -2,11 +2,14 @@ import React, { useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { Navigate } from 'react-router-dom';
 import { Icons } from './Icons';
+import { SovereignSentinel } from './SovereignSentinel';
 
 const AdminConsole: React.FC = () => {
-    const { profile, syncWithMaster, hasConflict, conflicts, loading, masterData } = useAuth();
+    const { profile, syncWithMaster, hasConflict, conflicts, loading, masterData, updateProfile } = useAuth();
     const [activeTab, setActiveTab] = useState('overview');
     const [isSyncing, setIsSyncing] = useState(false);
+    const [isEditingAvatar, setIsEditingAvatar] = useState(false);
+    const [newAvatarUrl, setNewAvatarUrl] = useState(profile?.photoURL || '');
 
     if (loading) return null;
 
@@ -22,6 +25,21 @@ const AdminConsole: React.FC = () => {
         setIsSyncing(true);
         try {
             await syncWithMaster();
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
+    const handleAvatarUpdate = async () => {
+        if (!newAvatarUrl) return;
+        setIsSyncing(true);
+        try {
+            await updateProfile({ photoURL: newAvatarUrl });
+            setIsEditingAvatar(false);
+            // Force a sync to align local state immediately
+            await syncWithMaster();
+        } catch (err) {
+            console.error("Failed to update avatar", err);
         } finally {
             setIsSyncing(false);
         }
@@ -60,9 +78,9 @@ const AdminConsole: React.FC = () => {
             <div className="flex flex-col md:flex-row justify-end items-center gap-6">
 
                 <div className="flex items-center gap-2 p-1.5 bg-white/5 border border-white/5 rounded-2xl backdrop-blur-xl">
-                    <button onClick={() => setActiveTab('overview')} className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'overview' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20 border border-indigo-400' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>Overview</button>
-                    <button onClick={() => setActiveTab('profile')} className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'profile' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20 border border-indigo-400' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>Master Identity</button>
-                    <button onClick={() => setActiveTab('systems')} className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'systems' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/20 border border-indigo-400' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>Systems</button>
+                    <button onClick={() => setActiveTab('overview')} className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'overview' ? 'bg-primary text-white shadow-xl shadow-primary/20 border border-primary/40' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>Overview</button>
+                    <button onClick={() => setActiveTab('profile')} className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'profile' ? 'bg-primary text-white shadow-xl shadow-primary/20 border border-primary/40' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>Master Identity</button>
+                    <button onClick={() => setActiveTab('systems')} className={`px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'systems' ? 'bg-primary text-white shadow-xl shadow-primary/20 border border-primary/40' : 'text-white/40 hover:text-white hover:bg-white/5'}`}>Systems</button>
                 </div>
             </div>
 
@@ -72,11 +90,11 @@ const AdminConsole: React.FC = () => {
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         {[
                             { label: 'Ecosystem Status', value: 'ALIGNED', change: 'Stable', icon: Icons.globe, color: 'text-emerald-400' },
-                            { label: 'Prompt Power', value: '98.2%', change: '+2.1%', icon: Icons.zap, color: 'text-indigo-400' },
-                            { label: 'Identity Sync', value: hasConflict ? 'STALE' : 'SYNCED', change: 'Real-time', icon: Icons.users, color: hasConflict ? 'text-rose-400' : 'text-indigo-400' },
+                            { label: 'Prompt Power', value: '98.2%', change: '+2.1%', icon: Icons.zap, color: 'text-primary' },
+                            { label: 'Identity Sync', value: hasConflict ? 'STALE' : 'SYNCED', change: 'Real-time', icon: Icons.users, color: hasConflict ? 'text-rose-400' : 'text-primary' },
                             { label: 'Revenue Nodes', value: '14 Active', change: 'Production', icon: Icons.trendingUp, color: 'text-amber-400' }
                         ].map((stat, idx) => (
-                            <div key={idx} className="glass-card p-6 group overflow-hidden relative border-white/5 hover:border-indigo-500/30 transition-all">
+                            <div key={idx} className="glass-card p-6 group overflow-hidden relative border-white/5 hover:border-primary/30 transition-all">
                                 <div className="absolute -right-4 -bottom-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity">
                                     <stat.icon size={96} />
                                 </div>
@@ -93,33 +111,36 @@ const AdminConsole: React.FC = () => {
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-                        {/* Traffic Performance */}
-                        <div className="xl:col-span-2 glass-card p-8 relative overflow-hidden group">
-                            <div className="absolute top-0 right-0 w-1/2 h-full bg-gradient-to-l from-indigo-500/5 to-transparent"></div>
-                            <div className="flex items-center justify-between mb-10 pb-4 border-b border-white/5 relative z-10">
-                                <h3 className="text-sm font-black text-white uppercase tracking-[0.2em] flex items-center gap-3">
-                                    <Icons.activity className="w-5 h-5 text-indigo-400" /> Multi-App Analytics
-                                </h3>
-                                <div className="flex gap-2 items-center">
-                                     <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(99,102,241,0.5)]"></span>
-                                     <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">Live Engine Telemetry</span>
-                                </div>
-                            </div>
+                        {/* Sovereign Sentinel HUD */}
+                        <div className="xl:col-span-1 space-y-6">
+                            <SovereignSentinel variant="hud" />
                             
-                            <div className="aspect-[21/9] bg-black/40 border border-dashed border-white/10 rounded-3xl flex items-center justify-center group cursor-pointer hover:bg-black/60 transition-all relative z-10">
-                                <Icons.activity className="w-16 h-16 text-white/5 group-hover:text-indigo-500/20 transition-all group-hover:scale-110 duration-700" />
-                                <div className="absolute inset-0 flex items-center justify-center flex-col gap-3">
-                                    <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">No Active Telemetry</p>
-                                    <button className="px-5 py-2.5 bg-indigo-600/0 border border-indigo-500/0 text-[9px] font-black text-white/0 uppercase tracking-widest rounded-xl group-hover:text-indigo-400 group-hover:border-indigo-500/20 group-hover:bg-indigo-500/10 transition-all">Launch Debugger</button>
+                            {/* Quick Identity Card */}
+                            <div className="glass-card p-6 bg-amber-500/[0.03] border-amber-500/20">
+                                <h3 className="text-[10px] font-black text-amber-500/50 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                                    <Icons.users size={14} /> Identity Quick-Edit
+                                </h3>
+                                <div className="flex items-center gap-4 mb-4">
+                                    <img src={profile?.photoURL || ''} className="w-12 h-12 rounded-xl object-cover border border-white/10" alt="" />
+                                    <div>
+                                        <p className="text-xs font-black text-white">{profile?.displayName}</p>
+                                        <p className="text-[9px] font-black text-white/20 uppercase tracking-widest">{profile?.role}</p>
+                                    </div>
                                 </div>
+                                <button 
+                                    onClick={() => setActiveTab('profile')}
+                                    className="w-full py-3 bg-white/5 border border-white/10 rounded-xl text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                                >
+                                    Modify Master Identity
+                                </button>
                             </div>
                         </div>
 
                         {/* Resource Management */}
-                        <div className="space-y-6">
-                            <div className="glass-card p-6 bg-indigo-500/[0.03]">
+                        <div className="xl:col-span-2 space-y-6">
+                            <div className="glass-card p-6 bg-primary/[0.03]">
                                 <h3 className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">
-                                    <Icons.database size={14} className="text-indigo-400" /> Database Nodes
+                                    <Icons.database size={14} className="text-primary" /> Database Nodes
                                 </h3>
                                 <div className="space-y-3">
                                     {[
@@ -130,15 +151,20 @@ const AdminConsole: React.FC = () => {
                                         <div key={idx} className="flex items-center justify-between p-4 bg-black/40 border border-white/5 rounded-2xl hover:border-white/10 transition-colors">
                                             <div>
                                                 <p className="text-[10px] font-black text-white uppercase tracking-tighter mb-1">{dbNode.name}</p>
-                                                <p className={`text-[8px] font-black uppercase tracking-[0.2em] ${dbNode.role === 'MASTER' ? 'text-indigo-400' : 'text-white/20'}`}>{dbNode.role}</p>
+                                                <p className={`text-[8px] font-black uppercase tracking-[0.2em] ${dbNode.role === 'MASTER' ? 'text-primary' : 'text-white/20'}`}>{dbNode.role}</p>
                                             </div>
                                             <span className={`text-[8px] font-black uppercase px-2 py-1 rounded-md ${dbNode.status === 'Healthy' ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-500 border border-rose-500/20'}`}>{dbNode.status}</span>
                                         </div>
                                     ))}
                                 </div>
                             </div>
-                            <button className="w-full bg-indigo-600 text-white py-5 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] flex items-center justify-center gap-2 hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20 active:scale-95 group">
-                                <Icons.shield className="w-4 h-4" /> Lock Ecosystem State
+                            <button 
+                                onClick={handleMasterSync}
+                                disabled={isSyncing}
+                                className="w-full bg-primary text-white py-5 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] flex items-center justify-center gap-2 hover:bg-primary/90 transition-all shadow-xl shadow-primary/20 active:scale-95 group disabled:opacity-50"
+                            >
+                                <Icons.refresh className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} /> 
+                                {isSyncing ? 'Synchronizing Ecosystem...' : 'Lock & Align Ecosystem State'}
                             </button>
                         </div>
                     </div>
@@ -149,10 +175,10 @@ const AdminConsole: React.FC = () => {
                 <div className="animate-fade-in-up">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                         {/* Profile Configuration */}
-                        <div className="glass-card p-8 bg-indigo-500/[0.02]">
+                        <div className="glass-card p-8 bg-primary/[0.02]">
                             <div className="flex items-center justify-between mb-10 pb-4 border-b border-white/5">
                                 <h3 className="text-sm font-black text-white uppercase tracking-[0.2em] flex items-center gap-3">
-                                    <Icons.users className="w-5 h-5 text-indigo-400" /> Identity Alignment
+                                    <Icons.users className="w-5 h-5 text-primary" /> Identity Alignment
                                 </h3>
                                 <span className={`text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-full border ${hasConflict ? 'bg-rose-500/10 text-rose-500 border-rose-500/30' : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'}`}>
                                     {hasConflict ? 'CONFLICT' : 'VALIDATED'}
@@ -162,21 +188,58 @@ const AdminConsole: React.FC = () => {
                             <div className="space-y-8">
                                 <div className="flex flex-col items-center gap-4">
                                      <div className="relative group">
-                                          <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500 to-purple-600 rounded-3xl blur opacity-30 group-hover:opacity-50 transition-opacity"></div>
+                                          <div className="absolute -inset-1 bg-gradient-to-r from-primary to-accent rounded-3xl blur opacity-30 group-hover:opacity-50 transition-opacity"></div>
                                           <img src={profile?.photoURL || ''} className="relative w-28 h-28 rounded-3xl object-cover border border-white/10" alt="Avatar" />
-                                          <button className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-xl hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20">Change</button>
+                                          {!isEditingAvatar && (
+                                              <button 
+                                                  onClick={() => {
+                                                      setIsEditingAvatar(true);
+                                                      setNewAvatarUrl(profile?.photoURL || '');
+                                                  }}
+                                                  className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-primary text-white text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-xl hover:bg-primary/90 transition-all shadow-xl shadow-primary/20"
+                                              >
+                                                  Change
+                                              </button>
+                                          )}
                                      </div>
-                                     <div className="text-center mt-4">
-                                         <h4 className="text-2xl font-black text-white capitalize leading-none mb-2">{profile?.displayName}</h4>
-                                         <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">{profile?.email}</p>
-                                     </div>
+                                     
+                                     {isEditingAvatar ? (
+                                         <div className="w-full max-w-sm space-y-3 mt-4">
+                                             <input 
+                                                 type="text" 
+                                                 value={newAvatarUrl}
+                                                 onChange={(e) => setNewAvatarUrl(e.target.value)}
+                                                 placeholder="Paste Avatar URL here..."
+                                                 className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-xs text-white placeholder:text-white/20 focus:outline-none focus:border-primary transition-all"
+                                             />
+                                             <div className="flex gap-2">
+                                                 <button 
+                                                     onClick={handleAvatarUpdate}
+                                                     className="flex-1 bg-primary text-white py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-primary/80 transition-all"
+                                                 >
+                                                     Save URL
+                                                 </button>
+                                                 <button 
+                                                     onClick={() => setIsEditingAvatar(false)}
+                                                     className="px-4 bg-white/5 border border-white/10 text-white/40 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-white/10 transition-all"
+                                                 >
+                                                     Cancel
+                                                 </button>
+                                             </div>
+                                         </div>
+                                     ) : (
+                                         <div className="text-center mt-4">
+                                             <h4 className="text-2xl font-black text-white capitalize leading-none mb-2">{profile?.displayName}</h4>
+                                             <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">{profile?.email}</p>
+                                         </div>
+                                     )}
                                 </div>
 
                                 <div className="grid grid-cols-1 gap-5">
                                     <div className="space-y-2">
                                         <label className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] ml-1">Ecosystem Node ID</label>
                                         <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex items-center gap-4 group">
-                                            <Icons.zap size={16} className="text-white/20 group-hover:text-indigo-400 transition-colors" />
+                                            <Icons.zap size={16} className="text-white/20 group-hover:text-primary transition-colors" />
                                             <code className="text-xs font-mono text-white/40 group-hover:text-white transition-colors">{profile?.uid}</code>
                                         </div>
                                     </div>
@@ -185,8 +248,8 @@ const AdminConsole: React.FC = () => {
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] ml-1">Assigned Role</label>
                                             <div className="bg-black/40 border border-white/5 p-4 rounded-2xl flex items-center gap-4 group">
-                                                <Icons.shield size={16} className="text-indigo-400" />
-                                                <span className="text-xs font-black text-white uppercase group-hover:text-indigo-400 transition-colors">{profile?.role}</span>
+                                                <Icons.shield size={16} className="text-primary" />
+                                                <span className="text-xs font-black text-white uppercase group-hover:text-primary transition-colors">{profile?.role}</span>
                                             </div>
                                         </div>
                                         <div className="space-y-2">
@@ -204,7 +267,7 @@ const AdminConsole: React.FC = () => {
                                 </div>
 
                                 <button 
-                                    className="w-full flex items-center justify-center gap-3 bg-white text-black py-5 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] hover:bg-indigo-500 hover:text-white transition-all shadow-xl"
+                                    className="w-full flex items-center justify-center gap-3 bg-white text-black py-5 rounded-2xl text-[10px] font-black uppercase tracking-[0.3em] hover:bg-primary hover:text-white transition-all shadow-xl"
                                     onClick={() => handleMasterSync()}
                                 >
                                     <Icons.refresh size={14} /> Force Identity Re-Sync
@@ -258,9 +321,9 @@ const AdminConsole: React.FC = () => {
                                 </div>
                             </div>
 
-                            <div className="glass-card p-8 bg-indigo-500/[0.02]">
+                            <div className="glass-card p-8 bg-primary/[0.02]">
                                 <h3 className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] mb-8 pb-4 border-b border-white/5 flex items-center gap-3">
-                                    <Icons.database size={14} className="text-indigo-400" /> Integrity Audit
+                                    <Icons.database size={14} className="text-primary" /> Integrity Audit
                                 </h3>
                                 
                                 <div className="space-y-4">
@@ -285,15 +348,24 @@ const AdminConsole: React.FC = () => {
             )}
 
             {activeTab === 'systems' && (
-                <div className="glass-card p-20 flex flex-col items-center justify-center text-center gap-8 border-dashed border-white/10 grayscale opacity-40">
-                    <div className="p-8 bg-indigo-500/5 rounded-full border border-indigo-500/10">
-                        <Icons.database size={64} className="text-indigo-400 animate-pulse" />
+                <div className="glass-card p-20 flex flex-col items-center justify-center text-center gap-8 border-white/5 bg-white/[0.01]">
+                    <div className="p-8 bg-primary/5 rounded-full border border-primary/10">
+                        <Icons.zap size={64} className="text-primary" />
                     </div>
                     <div>
-                        <h3 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">Command Post Offline</h3>
-                        <p className="text-xs font-black text-white/20 uppercase tracking-[0.3em] max-w-sm mx-auto leading-relaxed">Advanced telemetry requires connection to live production nodes. Establish a handshake with the master architecture.</p>
+                        <h3 className="text-3xl font-black text-white uppercase tracking-tighter mb-4">Command Post Active</h3>
+                        <p className="text-xs font-black text-white/20 uppercase tracking-[0.3em] max-w-sm mx-auto leading-relaxed">Global telemetry is synchronized. All system nodes are reporting healthy alignment with the Stillwater Master Registry.</p>
                     </div>
-                    <button className="px-8 py-4 bg-white/5 border border-white/10 text-[10px] font-black uppercase tracking-[0.3em] text-indigo-400 rounded-2xl hover:bg-indigo-600 hover:text-white hover:border-indigo-500 transition-all active:scale-95 shadow-2xl">Re-Initiate Protocol</button>
+                    <div className="grid grid-cols-2 gap-4 w-full max-w-md">
+                        <div className="p-4 bg-black/40 border border-white/5 rounded-2xl">
+                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-1">Uptime</p>
+                            <p className="text-sm font-black text-emerald-500">99.98%</p>
+                        </div>
+                        <div className="p-4 bg-black/40 border border-white/5 rounded-2xl">
+                            <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-1">Latency</p>
+                            <p className="text-sm font-black text-primary">14ms</p>
+                        </div>
+                    </div>
                 </div>
             )}
         </div>
