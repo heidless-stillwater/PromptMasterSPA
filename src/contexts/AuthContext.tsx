@@ -79,6 +79,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await updateDoc(userRef, {
         role: masterData.role || 'member',
         displayName: masterData.displayName || profile?.displayName,
+        photoURL: masterData.photoURL || profile?.photoURL,
         updatedAt: serverTimestamp(),
         isSynced: true
     });

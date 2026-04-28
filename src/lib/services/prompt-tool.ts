@@ -24,7 +24,18 @@ export const triggerGeneration = async (
 ) => {
   try {
     const API_URL = import.meta.env.VITE_PROMPTTOOL_API_URL || '/api/generate';
-    const response = await fetch(API_URL, { // Note: Proxy or absolute URL to PromptTool needed
+    console.log('[Generation Service] Dispatching Request:', {
+        prompt,
+        uid: userId,
+        title,
+        promptSetID,
+        quality,
+        variables,
+        template,
+        referenceImages
+    });
+
+    const response = await fetch(API_URL, { 
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -33,15 +44,15 @@ export const triggerGeneration = async (
       body: JSON.stringify({
         prompt,
         uid: userId,
-        title: title, // Pass the blueprint title
-        promptSetID: promptSetID, // Pass the lineage ID for grouping
+        title: title, 
+        promptSetID: promptSetID, 
         quality,
         aspectRatio: '16:9',
         promptType: 'freeform',
         count: 1,
         modality: 'image',
-        variables, // Architectural metadata
-        template, // Blueprint snapshot with tags
+        variables, 
+        template, 
         referenceImages
       }),
       signal

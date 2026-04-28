@@ -123,11 +123,11 @@ export function RegistryVariations({
   };
 
   const renderCard = (img: any, isOriginal: boolean) => {
-    const url = isOriginal ? (originalSnapshot?.url || (selectedPrompt?.id ? `https://api.dicebear.com/7.x/shapes/svg?seed=${selectedPrompt.id}` : '')) : img.url;
+    const url = isOriginal ? (originalSnapshot?.url || selectedPrompt?.thumbnailUrl || (selectedPrompt?.id ? `https://api.dicebear.com/7.x/shapes/svg?seed=${selectedPrompt.id}` : '')) : img.url;
     const title = isOriginal ? (originalSnapshot?.title || selectedPrompt?.title || '<no title>') : (img.title || '<no title>');
     const promptValue = isOriginal ? (originalSnapshot?.prompt || selectedPrompt?.template || selectedPrompt?.prompts?.[0]) : img.prompt;
     const isActive = (url === selectedPrompt?.thumbnailUrl) || (isOriginal && !selectedPrompt?.thumbnailUrl && !url);
-    const isDense = ['grid-3', 'grid-4', 'grid-5', 'grid-6', 'grid-8'].includes(variationsViewMode);
+    const isDense = ['grid-5', 'grid-6', 'grid-8'].includes(variationsViewMode);
 
     return (
       <div className={`flex group/card relative ${
@@ -165,22 +165,63 @@ export function RegistryVariations({
             </div>
           )}
 
-          <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 transition-all duration-300 flex items-center justify-center gap-3 backdrop-blur-[2px] pointer-events-none group-hover/thumb:pointer-events-auto z-30 ${isDense ? 'flex-row px-2' : 'flex-col'}`}>
+          <div className={`absolute inset-0 bg-black/60 opacity-0 group-hover/thumb:opacity-100 transition-all duration-500 flex items-center justify-center gap-2 backdrop-blur-md pointer-events-none group-hover/thumb:pointer-events-auto z-30 ${isDense ? 'flex-row px-2' : 'flex-row flex-wrap px-4'}`}>
+            {/* ── CORE ACTIONS (Icon Only for standard grids) ── */}
             <button
-              className={`bg-white/5 hover:bg-white/10 backdrop-blur-xl border border-white/10 rounded-2xl font-black text-white uppercase tracking-[0.3em] transition-all shadow-2xl hover:scale-105 active:scale-95 ${isDense ? 'p-3 rounded-xl' : (variationsViewMode.startsWith('grid') ? 'w-36 py-3 text-[9px]' : 'w-12 h-10 text-[8px] px-2')}`}
+              className="p-3 bg-white/5 hover:bg-white/10 backdrop-blur-xl border border-white/10 rounded-xl text-white transition-all shadow-2xl hover:scale-110 active:scale-95"
               onClick={(e) => { e.stopPropagation(); setPreviewImageUrl(url); setPreviewTitle(title); setPreviewPrompt(promptValue || null); }}
               title="Immerse Vision"
             >
-              {isDense || !variationsViewMode.startsWith('grid') ? <Icons.eye className="w-4 h-4" /> : 'Immerse Vision'}
+              <Icons.eye className="w-4 h-4" />
             </button>
+
             <button
-              className={`${isActive ? 'bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border-rose-500/20' : 'bg-indigo-600/80 hover:bg-indigo-600 text-white border-indigo-500/20'} backdrop-blur-xl rounded-2xl font-black uppercase tracking-[0.3em] transition-all shadow-2xl flex items-center justify-center gap-2 hover:scale-105 active:scale-95 ${isDense ? 'p-3 rounded-xl' : (variationsViewMode.startsWith('grid') ? 'w-36 py-3 text-[9px]' : 'w-12 h-10 text-[8px] px-2')}`}
+              className={`p-3 rounded-xl border transition-all shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 ${isActive ? 'bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white border-rose-500/20' : 'bg-indigo-600/80 hover:bg-indigo-600 text-white border-indigo-500/20'}`}
               onClick={(e) => { e.stopPropagation(); handleAssetSelection(url, title, promptValue, !isOriginal ? img.variables : undefined); }}
-              title={isActive ? "Deselect Architecture" : "Standardize Architecture"}
+              title={isActive ? "Deselect Prompt" : "Standardize Prompt"}
             >
               {isActive ? <Icons.close className="w-4 h-4" /> : <Icons.check className="w-4 h-4" />}
-              {!isDense && variationsViewMode.startsWith('grid') && (isActive ? ' Deselect' : ' Standardize')}
             </button>
+
+            {!isDense && (
+                <>
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        handleClone({ 
+                          ...selectedPrompt, 
+                          thumbnailUrl: url,
+                          title: title,
+                          template: isOriginal ? promptValue : (img.template || selectedPrompt?.template || promptValue)
+                        }, undefined, promptValue); 
+                      }}
+                      className="p-3 bg-white/5 hover:bg-indigo-600/40 text-white/40 hover:text-indigo-400 rounded-xl border border-white/10 hover:border-indigo-500/30 transition-all shadow-2xl hover:scale-110"
+                      title="Clone Blueprint"
+                    >
+                      <Icons.copy className="w-4 h-4" />
+                    </button>
+
+                    {onViewInGallery && url && (
+                      <button 
+                          onClick={(e) => { e.stopPropagation(); onViewInGallery({ ...img, imageUrl: url, title: title, prompt: promptValue }); }}
+                          className="p-3 bg-white/5 hover:bg-indigo-600/40 text-white/40 hover:text-indigo-400 rounded-xl border border-white/10 hover:border-indigo-500/30 transition-all shadow-2xl hover:scale-110"
+                          title="View Registry"
+                      >
+                        <Icons.external className="w-4 h-4" />
+                      </button>
+                    )}
+
+                    {!isOriginal && (profile?.role === 'admin' || profile?.role === 'su' || (user && img.uid === user.uid)) && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); handleDeleteSelectedVariations(url); }}
+                        className="p-3 bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white rounded-xl border border-rose-500/20 transition-all shadow-2xl hover:scale-110"
+                        title="Decommission Node"
+                      >
+                        <Icons.delete className="w-4 h-4" />
+                      </button>
+                    )}
+                </>
+            )}
             
             {isDense && (
               <button 
@@ -193,43 +234,6 @@ export function RegistryVariations({
             )}
           </div>
 
-          {!isDense && (
-            <div className="absolute top-5 right-5 z-50 flex flex-col gap-2 opacity-0 group-hover/thumb:opacity-100 transition-all translate-x-3 group-hover/thumb:translate-x-0 pointer-events-none group-hover/thumb:pointer-events-auto">
-                <button 
-                  onClick={(e) => { 
-                    e.stopPropagation(); 
-                    handleClone({ 
-                      ...selectedPrompt, 
-                      thumbnailUrl: url,
-                      title: title,
-                      template: isOriginal ? promptValue : (img.template || selectedPrompt?.template || promptValue)
-                    }, undefined, promptValue); 
-                  }}
-                  className="w-10 h-10 flex items-center justify-center bg-black/80 hover:bg-indigo-600/40 text-white/40 hover:text-indigo-400 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-all backdrop-blur-xl shadow-2xl"
-                  title="Clone Blueprint"
-                >
-                  <Icons.copy className="w-4 h-4" />
-                </button>
-                {onViewInGallery && url && (
-                  <button 
-                      onClick={(e) => { e.stopPropagation(); onViewInGallery({ ...img, imageUrl: url, title: title, prompt: promptValue }); }}
-                      className="w-10 h-10 flex items-center justify-center bg-black/80 hover:bg-indigo-600/40 text-white/40 hover:text-indigo-400 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-all backdrop-blur-xl shadow-2xl"
-                      title="View Registry"
-                  >
-                    <Icons.external className="w-4 h-4" />
-                  </button>
-                )}
-                {!isOriginal && (profile?.role === 'admin' || profile?.role === 'su' || (user && img.uid === user.uid)) && (
-                  <button 
-                    onClick={(e) => { e.stopPropagation(); handleDeleteSelectedVariations(url); }}
-                    className="w-10 h-10 flex items-center justify-center bg-rose-600/20 hover:bg-rose-600 text-rose-400 hover:text-white rounded-xl border border-rose-500/20 transition-all backdrop-blur-xl shadow-2xl"
-                    title="Decommission Node"
-                  >
-                    <Icons.delete className="w-4 h-4" />
-                  </button>
-                )}
-            </div>
-          )}
           {activeMenuId === url && <VariationActionsPopup url={url} title={title} promptValue={promptValue} isOriginal={isOriginal} img={img} />}
         </div>
 
@@ -255,26 +259,26 @@ export function RegistryVariations({
   };
 
   return (
-    <div className="space-y-8 mt-10">
-      <div className="flex items-center justify-between border-b border-white/5 pb-6">
-        <div className="flex items-center gap-6">
+    <div className="space-y-8 mt-10 w-full min-w-0 overflow-hidden">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 border-b border-white/5 pb-6">
+        <div className="flex items-center gap-6 min-w-0">
           <button
             onClick={() => setIsVariationsCollapsed(!isVariationsCollapsed)}
-            className="flex items-center gap-4 group outline-none"
+            className="flex items-center gap-4 group outline-none min-w-0"
           >
             <div className={`p-2 rounded-xl bg-white/5 border border-white/10 text-indigo-400 transition-all duration-500 group-hover:bg-indigo-500/10 ${isVariationsCollapsed ? '-rotate-90' : ''}`}>
                 <Icons.chevronDown className="w-5 h-5" />
             </div>
-            <div className="flex flex-col items-start">
-                <h4 className="text-[12px] font-black text-white uppercase tracking-[0.4em] m-0 p-0 leading-none">
+            <div className="flex flex-col items-start min-w-0">
+                <h4 className="text-[12px] font-black text-white uppercase tracking-[0.4em] m-0 p-0 leading-none truncate w-full">
                   Asset Variation Matrix
                 </h4>
-                <p className="text-[9px] font-black text-indigo-400/30 uppercase tracking-[0.3em] mt-2 leading-none">Linked Neural Blueprints</p>
+                <p className="text-[9px] font-black text-indigo-400/30 uppercase tracking-[0.3em] mt-2 leading-none truncate w-full">Linked Neural Blueprints</p>
             </div>
           </button>
         </div>
 
-        <div className="flex items-center gap-6">
+        <div className="flex flex-wrap items-center gap-6">
           <div className="flex items-center gap-3">
               {selectedVariations.size > 0 && (
                 <button 
@@ -292,55 +296,57 @@ export function RegistryVariations({
               </button>
           </div>
 
-          <div className="flex items-center gap-2 bg-black/40 p-1.5 rounded-2xl border border-white/5 shadow-2xl backdrop-blur-3xl shrink-0">
-            <div className="px-3 py-1.5 flex items-center gap-3 border-r border-white/5 mr-1 select-none">
+          <div className="flex items-center gap-2 bg-black/40 p-1.5 rounded-2xl border border-white/5 shadow-2xl backdrop-blur-3xl overflow-x-auto no-scrollbar">
+            <div className="px-3 py-1.5 flex items-center gap-3 border-r border-white/5 mr-1 select-none shrink-0">
                 <Icons.grid className="w-4 h-4 text-indigo-400" />
                 <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">Density</span>
             </div>
             {['grid-2', 'grid-3', 'grid-4', 'grid-6', 'grid-8'].map(mode => (
                <button 
                  key={mode}
-                 onClick={() => setVariationsViewMode(mode)} 
-                 className={`px-3.5 py-1.5 rounded-xl text-[9px] font-black transition-all duration-500 uppercase ${variationsViewMode === mode ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+                 onClick={() => setVariationsViewMode(mode as any)} 
+                 className={`px-3.5 py-1.5 rounded-xl text-[9px] font-black transition-all duration-500 uppercase shrink-0 ${variationsViewMode === mode ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
                >
                  {mode.split('-')[1]}C
                </button>
             ))}
-            <div className="w-px h-6 bg-white/5 mx-2" />
+            <div className="w-px h-6 bg-white/5 mx-2 shrink-0" />
             <button 
               onClick={() => setVariationsViewMode('list')} 
-              className={`p-2 rounded-xl transition-all duration-500 ${variationsViewMode === 'list' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+              className={`p-2 rounded-xl transition-all duration-500 shrink-0 ${variationsViewMode === 'list' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
             >
               <Icons.list className="w-4 h-4" />
             </button>
             <button 
               onClick={() => setVariationsViewMode('extended')} 
-              className={`p-2 rounded-xl transition-all duration-500 ${variationsViewMode === 'extended' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
+              className={`p-2 rounded-xl transition-all duration-500 shrink-0 ${variationsViewMode === 'extended' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-white/20 hover:text-white hover:bg-white/5'}`}
             >
               <Icons.feed className="w-4 h-4" />
             </button>
           </div>
-          <div className="px-4 py-2 bg-white/5 border border-white/5 rounded-xl">
+          <div className="px-4 py-2 bg-white/5 border border-white/5 rounded-xl shrink-0">
              <span className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em]">{generatedImages.length + 1} Managed Objects</span>
           </div>
         </div>
       </div>
 
       {!isVariationsCollapsed && (
-        <div className={`pt-8 animate-fade-in ${
-          variationsViewMode === 'grid-2' ? 'grid grid-cols-2 gap-10' : 
-          variationsViewMode === 'grid-3' ? 'grid grid-cols-3 gap-8' : 
-          variationsViewMode === 'grid-4' ? 'grid grid-cols-4 gap-6' : 
-          variationsViewMode === 'grid-6' ? 'grid grid-cols-6 gap-4' : 
-          variationsViewMode === 'grid-8' ? 'grid grid-cols-8 gap-3' : 
-          'flex flex-col gap-6'
-        }`}>
-          {renderCard(null, true)}
-          {generatedImages.map((img, idx) => (
-            <div key={idx} className="animate-fade-in-up" style={{ animationDelay: `${idx * 50}ms` }}>
-              {renderCard(img, false)}
+        <div className="overflow-x-auto no-scrollbar pb-10">
+            <div className={`pt-8 animate-fade-in min-w-[600px] xl:min-w-0 ${
+            variationsViewMode === 'grid-2' ? 'grid grid-cols-2 gap-10' : 
+            variationsViewMode === 'grid-3' ? 'grid grid-cols-3 gap-8' : 
+            variationsViewMode === 'grid-4' ? 'grid grid-cols-4 gap-6' : 
+            variationsViewMode === 'grid-6' ? 'grid grid-cols-6 gap-4' : 
+            variationsViewMode === 'grid-8' ? 'grid grid-cols-8 gap-3' : 
+            'flex flex-col gap-6'
+            }`}>
+            {renderCard(null, true)}
+            {generatedImages.map((img, idx) => (
+                <div key={idx} className="animate-fade-in-up" style={{ animationDelay: `${idx * 50}ms` }}>
+                {renderCard(img, false)}
+                </div>
+            ))}
             </div>
-          ))}
         </div>
       )}
     </div>

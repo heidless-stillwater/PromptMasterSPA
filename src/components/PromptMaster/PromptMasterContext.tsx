@@ -51,8 +51,15 @@ interface PromptMasterContextValue {
   // Variations / Gallery
   generatedImages: Variation[];
   setGeneratedImages: React.Dispatch<React.SetStateAction<Variation[]>>;
+  selectedVariations: Set<string>;
+  setSelectedVariations: React.Dispatch<React.SetStateAction<Set<string>>>;
   variationsViewMode: 'grid-3' | 'list';
   setVariationsViewMode: React.Dispatch<React.SetStateAction<'grid-3' | 'list'>>;
+
+  // ...
+  toggleSelectVariation: (url: string) => void;
+  selectAllVariations: () => void;
+  handleDeleteSelectedVariations: (url?: string) => Promise<void>;
 
   // Search & View
   searchQuery: string;
@@ -130,7 +137,7 @@ export const usePromptMaster = () => {
 // ── Provider ───────────────────────────────────────────────────────
 
 export const PromptMasterProvider: React.FC<PromptMasterProps & { children: React.ReactNode }> = ({
-  activeTab, setActiveTab, setConfirmModal, children,
+  activeTab, setActiveTab, tabVersion, setConfirmModal, children,
 }) => {
   const { user, profile } = useAuth();
   const { promptId } = useParams();
@@ -148,6 +155,8 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
   const [viewMode, setViewMode] = useState<'grid-2' | 'grid-3' | 'grid-4' | 'grid-5' | 'grid-6' | 'list'>('grid-4');
   const [variationsViewMode, setVariationsViewMode] = useState<'grid-3' | 'list'>('grid-3');
   const [selectedPrompt, setSelectedPrompt] = useState<Prompt | null>(null);
+  const [selectedVariations, setSelectedVariations] = useState<Set<string>>(new Set());
+  const [generatedImages, setGeneratedImages] = useState<Variation[]>([]);
   const [rawTemplate, setRawTemplate] = useState('');
   const [variables, setVariables] = useState<Record<string, { value: string; default: string }>>({});
   const [resultantPrompt, setResultantPrompt] = useState('');
@@ -161,7 +170,6 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
   // Engine State
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [generatedImages, setGeneratedImages] = useState<Variation[]>([]);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<StatusStep[]>(INITIAL_STEPS);
@@ -178,6 +186,14 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const prevTabRef = useRef(activeTab);
+  useEffect(() => {
+    if (prevTabRef.current !== activeTab) {
+      if (prevTabRef.current === 'gallery') {
+        setGallerySearchQuery('');
+      }
+      prevTabRef.current = activeTab;
+    }
+  }, [activeTab]);
 
   // ── Data Fetching ────────────────────────────────────────────────
 
@@ -312,13 +328,67 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
   // ── Tab Sync ───────────────────────────────────────────────────
 
   useEffect(() => {
-    // Only clear selection if the user EXPLICITLY switched to these tabs from another tab
-    // This prevents background processes (like cloning) from having their selection wiped
-    if (prevTabRef.current !== activeTab && (activeTab === 'exemplars' || activeTab === 'gallery')) {
-       setSelectedPrompt(null);
+    // Clear selection on tab change OR click version increment
+    setSelectedPrompt(null);
+    if (activeTab === 'gallery') {
+      setGallerySearchQuery('');
     }
     prevTabRef.current = activeTab;
-  }, [activeTab]);
+  }, [activeTab, tabVersion]);
+
+  // ── Variations Management ───────────────────────────────────────
+
+  const toggleSelectVariation = useCallback((url: string) => {
+    setSelectedVariations(prev => {
+      const next = new Set(prev);
+      if (next.has(url)) next.delete(url);
+      else next.add(url);
+      return next;
+    });
+  }, []);
+
+  const selectAllVariations = useCallback(() => {
+    setSelectedVariations(prev => {
+      if (prev.size === generatedImages.length) return new Set();
+      return new Set(generatedImages.map(img => img.url));
+    });
+  }, [generatedImages]);
+
+  const handleDeleteSelectedVariations = useCallback(async (targetUrl?: string) => {
+    if (!user) return;
+    const urlsToDelete = targetUrl ? [targetUrl] : Array.from(selectedVariations);
+    if (urlsToDelete.length === 0) return;
+
+    setConfirmModal({
+        isOpen: true,
+        title: 'Purge Matrix Nodes',
+        message: `This will permanently decommission ${urlsToDelete.length} variations from the ecosystem registry. Neural lineage will be severed. Proceed?`,
+        isDanger: true,
+        onConfirm: async () => {
+            setConfirmModal(null);
+            setSaving(true);
+            try {
+                for (const url of urlsToDelete) {
+                    const img = generatedImages.find(i => i.url === url);
+                    if (img && img.id) {
+                        await deleteDoc(doc(registryDb, 'users', user.uid, 'images', img.id));
+                    }
+                }
+                setGeneratedImages(prev => prev.filter(img => !urlsToDelete.includes(img.url)));
+                setSelectedVariations(prev => {
+                    const next = new Set(prev);
+                    urlsToDelete.forEach(u => next.delete(u));
+                    return next;
+                });
+                setNotification({ id: crypto.randomUUID(), title: `${urlsToDelete.length} variations purged.` });
+            } catch (err: any) {
+                setError(err.message);
+            } finally {
+                setSaving(false);
+            }
+        }
+    });
+  }, [user, selectedVariations, generatedImages, setConfirmModal]);
 
   // ── Selection ────────────────────────────────────────────────────
 
@@ -360,7 +430,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     setRawTemplate(template);
     extractVariables(template);
     setIsEditingBlueprint(false);
-    setActiveDetailTab('architect');
+    setActiveDetailTab(prompt.isExemplar ? 'media' : 'architect');
     setLastCommittedPrompt(template);
 
     const lineageID = prompt.promptSetID || prompt.id;
@@ -457,7 +527,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
 
     // Toggle Logic: If selecting already active architecture, revert to Original/Genesis state
     if (url && selectedPrompt?.thumbnailUrl === url) {
-      console.log("[Sovereign Registry] Deselecting Architecture; reverting to Genesis Node...");
+      console.log("[Sovereign Registry] Deselecting Prompt; reverting to Genesis Node...");
       const originalUrl = originalSnapshot?.url || null;
       const originalTitle = originalSnapshot?.title || selectedPrompt?.title;
       const originalPrompt = originalSnapshot?.template || selectedPrompt?.template || selectedPrompt?.prompts?.[0] || '';
@@ -473,7 +543,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     if (hasChanges) {
       setConfirmModal({
         isOpen: true,
-        title: 'Unsaved Architecture Changes',
+        title: 'Unsaved Prompt Changes',
         message: 'Your current prompt overrides have not been registered to the ecosystem. Resolving conflict...',
         isDanger: true,
         onConfirm: () => {},
@@ -710,8 +780,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
         message: "Verify the neural architecture and vision parameters for this distinct replication.",
         preview: {
           thumbnailUrl: p.thumbnailUrl,
-          template: template,
-          visionInstructions: compiledInstructions || template
+          template: template
         },
         customButtons: [
           {
@@ -759,7 +828,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       setNotification({ id: docRef.id, title: `Successfully registered clone: ${baseTitle}` });
       setTimeout(() => setNotification(null), 4000);
 
-      // Pivot to Blueprint Registry tab to ensure context stability
+      // Pivot to Prompt Registry tab to ensure context stability
       setActiveTab('blueprints');
 
       handleSelect({
@@ -817,29 +886,8 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
 
   // ── Generation (SSE → PromptTool) ────────────────────────────────
 
-  const handleSubmit = useCallback(async () => {
-    if (!user || !resultantPrompt) return;
-    
-    // Neural Compilation: Append reference material indicator
-    const refCount = referenceImages.length;
-    const refIndicator = refCount > 0 
-        ? `\n\n[REFERENCE MATERIALS ATTACHED: ${referenceImages.map(r => r.title || 'Untitled').join(', ')}]`
-        : `\n\n[NO REFERENCE MATERIALS ATTACHED]`;
-    
-    const bakedTemplate = getCleanPrompt();
-    setRawTemplate(bakedTemplate);
-    if (selectedPrompt && !selectedPrompt.isExemplar) {
-      doSave(false, { ...selectedPrompt, template: bakedTemplate });
-    }
-    const finalPrompt = bakedTemplate + refIndicator;
-    let activePromptSetID = selectedPrompt?.promptSetID || selectedPrompt?.id;
-    if (isNewImageSet) {
-      activePromptSetID = crypto.randomUUID();
-      setIsNewImageSet(false);
-      if (selectedPrompt) {
-        setSelectedPrompt({ ...selectedPrompt, promptSetID: activePromptSetID });
-      }
-    }
+  const executeGeneration = useCallback(async (finalPrompt: string, activePromptSetID: string | null | undefined, generationVariables: any, refPayload: any) => {
+    if (!user) return;
     setSaving(true);
     setError(null);
     startTimeRef.current = Date.now();
@@ -847,19 +895,12 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     timerRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
     }, 1000);
+
     try {
       setGenerating(true);
       setStatus(INITIAL_STEPS);
       const idToken = await user.getIdToken();
-      const generationVariables = { ...variables };
       
-      // Multi-image payload preparation
-      const refPayload = referenceImages.map(img => ({
-          data: img.url, // NanoBanana handles URL download if it starts with http
-          mimeType: 'image/png', // Default for now
-          title: img.title
-      }));
-
       await triggerGeneration(
         finalPrompt,
         user.uid,
@@ -908,7 +949,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
           }
         },
         selectedPrompt?.title || 'New Variation',
-        activePromptSetID,
+        activePromptSetID || undefined,
         generationVariables,
         getCleanPrompt(),
         quality,
@@ -920,7 +961,85 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       if (timerRef.current) clearInterval(timerRef.current);
       setGenerating(false);
     }
-  }, [user, resultantPrompt, selectedPrompt, variables, quality, isNewImageSet, getCleanPrompt, doSave]);
+  }, [user, selectedPrompt, quality, getCleanPrompt]);
+
+  const handleSubmit = useCallback(async () => {
+    if (!user || !resultantPrompt) return;
+    
+    // Neural Compilation: Append reference material indicator
+    const refCount = referenceImages.length;
+    const refIndicator = refCount > 0 
+        ? `\n\n[REFERENCE MATERIALS ATTACHED: ${referenceImages.map(r => r.title || 'Untitled').join(', ')}]`
+        : `\n\n[NO REFERENCE MATERIALS ATTACHED]`;
+    
+    const bakedTemplate = getCleanPrompt();
+    setRawTemplate(bakedTemplate);
+    if (selectedPrompt && !selectedPrompt.isExemplar) {
+      doSave(false, { ...selectedPrompt, template: bakedTemplate });
+    }
+    const finalPrompt = bakedTemplate + refIndicator;
+    let activePromptSetID = selectedPrompt?.promptSetID || selectedPrompt?.id;
+    if (isNewImageSet) {
+      activePromptSetID = crypto.randomUUID();
+      setIsNewImageSet(false);
+      if (selectedPrompt) {
+        setSelectedPrompt({ ...selectedPrompt, promptSetID: activePromptSetID });
+      }
+    }
+
+    // Sanitize variables for Firestore compatibility (no dots in keys)
+    const sanitizedVariables: Record<string, { value: string, default: string }> = {};
+    Object.entries(variables).forEach(([key, val]) => {
+        const safeKey = key.replace(/\./g, '_');
+        sanitizedVariables[safeKey] = val;
+    });
+
+    const generationVariables = { ...sanitizedVariables };
+    const refPayload = referenceImages.map(img => ({
+        data: img.url,
+        mimeType: 'image/png',
+        title: img.title
+    }));
+
+    // --- High-Fidelity Confirmation Protocol ---
+    const engineMult = engine === 'cinematic-3' ? 2 : engine === 'architect-1' ? 1.5 : 1;
+    const qualityBase = quality === 'ultra' ? 5 : quality === 'high' ? 2 : 1;
+    const totalCost = Math.ceil(engineMult * qualityBase);
+    const balance = profile?.credits || 0;
+    const remaining = balance - totalCost;
+
+    setConfirmModal({
+        isOpen: true,
+        title: 'Neural Generation Request',
+        message: `Authorize the ecosystem to trigger a new neural variation for "${selectedPrompt?.title || 'New Architecture'}". This will deploy the specified engine cluster and quality tier.`,
+        costSummary: {
+            engine: engine.split('-')[0],
+            quality,
+            cost: totalCost,
+            balance,
+            remaining
+        },
+        preview: {
+            thumbnailUrl: selectedPrompt?.thumbnailUrl || (referenceImages.length > 0 ? referenceImages[0].url : undefined),
+            visionInstructions: resultantPrompt
+        },
+        customButtons: [
+            {
+                label: 'Authorize & Generate',
+                onClick: () => {
+                    setConfirmModal(null);
+                    executeGeneration(finalPrompt, activePromptSetID, generationVariables, refPayload);
+                },
+                className: "col-span-1 py-3 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all shadow-lg bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20",
+            },
+            {
+                label: 'Abort Session',
+                onClick: () => setConfirmModal(null),
+                className: "col-span-1 py-3 px-6 rounded-xl border border-white/5 text-[10px] font-black uppercase tracking-widest text-white/10 hover:text-white/40 hover:bg-white/5 transition-all",
+            }
+        ]
+    });
+  }, [user, resultantPrompt, selectedPrompt, variables, quality, engine, isNewImageSet, getCleanPrompt, doSave, setConfirmModal, executeGeneration, profile, referenceImages]);
 
   const handleCancelGeneration = useCallback(() => {
     if (abortControllerRef.current) {
@@ -985,6 +1104,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     resultantPrompt, isEditingBlueprint, setIsEditingBlueprint,
     activeDetailTab, setActiveDetailTab,
     generatedImages, setGeneratedImages,
+    selectedVariations, setSelectedVariations,
     variationsViewMode, setVariationsViewMode,
     searchQuery, setSearchQuery,
     gallerySearchQuery, setGallerySearchQuery,
@@ -1004,6 +1124,8 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     saveBlueprint, handleDelete, handleClone,
     handleSetHero, handleAssetSelection,
     handleViewVariation, handleViewInGallery,
+    toggleSelectVariation, selectAllVariations,
+    handleDeleteSelectedVariations,
     originalSnapshot, setOriginalSnapshot,
     getCleanPrompt, fetchPrompts,
     referenceImages, setReferenceImages,

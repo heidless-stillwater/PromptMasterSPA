@@ -62,15 +62,58 @@ const AdminConsole: React.FC = () => {
                             <p className="text-sm font-bold text-rose-400 mt-1 uppercase tracking-widest leading-tight">
                                 {conflicts.join(' | ')}
                             </p>
+                            <div className="mt-3 flex items-center gap-2">
+                                <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">Source Authority:</span>
+                                <a 
+                                    href="http://localhost:3001/profile" 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-[10px] font-black text-primary uppercase tracking-widest hover:text-white transition-colors flex items-center gap-1.5"
+                                >
+                                    PromptTool Master Registry <Icons.external size={10} />
+                                </a>
+                            </div>
+
+                            {/* Image Conflict HUD */}
+                            {conflicts.some(c => c.includes('PhotoURL')) && (
+                                <div className="mt-5 flex items-center gap-5 p-3 bg-black/40 rounded-2xl border border-white/5 w-fit">
+                                    <div className="flex flex-col gap-1.5">
+                                        <span className="text-[7px] font-black text-white/20 uppercase tracking-widest">Local Override</span>
+                                        <div className="relative">
+                                            <img src={profile?.photoURL || ''} className="w-12 h-12 rounded-xl object-cover border border-white/10" alt="Local" />
+                                            <div className="absolute -top-1 -right-1 bg-rose-500 rounded-full p-0.5 border border-black">
+                                                <Icons.close size={6} className="text-white" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                    
+                                    <Icons.chevronRight size={12} className="text-white/10 mt-3" />
+
+                                    <div className="flex flex-col gap-1.5">
+                                        <span className="text-[7px] font-black text-primary uppercase tracking-widest">Master Authority</span>
+                                        <div className="relative">
+                                            <img src={masterData?.photoURL || ''} className="w-12 h-12 rounded-xl object-cover border border-primary/30 shadow-lg shadow-primary/20" alt="Master" />
+                                            <div className="absolute -top-1 -right-1 bg-emerald-500 rounded-full p-0.5 border border-black">
+                                                <Icons.check size={6} className="text-white" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
-                    <button 
-                        onClick={handleMasterSync}
-                        disabled={isSyncing}
-                        className="bg-white text-black px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-rose-500 hover:text-white transition-all shadow-2xl relative z-10 flex items-center gap-3 disabled:opacity-50"
-                    >
-                        {isSyncing ? 'Synchronizing...' : 'Resolve & Align with PromptTool'}
-                    </button>
+                    <div className="flex flex-col gap-4 items-end relative z-10">
+                        <p className="text-[9px] font-bold text-rose-400/60 uppercase tracking-widest text-right max-w-[240px]">
+                            This operation will pull the latest authority markers from the Master Registry and overwrite local identity overrides.
+                        </p>
+                        <button 
+                            onClick={handleMasterSync}
+                            disabled={isSyncing}
+                            className="bg-white text-black px-8 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] hover:bg-rose-500 hover:text-white transition-all shadow-2xl flex items-center gap-3 disabled:opacity-50"
+                        >
+                            {isSyncing ? 'Synchronizing...' : 'Resolve & Align with PromptTool'}
+                        </button>
+                    </div>
                 </div>
             )}
 

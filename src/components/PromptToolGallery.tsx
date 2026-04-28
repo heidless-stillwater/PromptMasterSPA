@@ -6,6 +6,7 @@ import {
 import { toolDb } from '../lib/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { Icons } from './Icons';
+import { usePromptMaster } from './PromptMaster/PromptMasterContext';
 
 // ── Types ──────────────────────────────────────────────────────────
 interface GImage {
@@ -29,7 +30,7 @@ interface GImage {
   tags?: string[];
 }
 
-type ViewMode = 'grid-2' | 'grid-3' | 'grid-4' | 'list';
+type ViewMode = 'grid-2' | 'grid-3' | 'grid-4' | 'grid-5' | 'grid-6' | 'list';
 type SortMode = 'newest' | 'oldest';
 
 const PAGE_SIZE = 40;
@@ -438,7 +439,7 @@ function GalleryCard({
             className={`px-6 py-3 text-[10px] font-black uppercase tracking-[0.2em] rounded-2xl transition-all shadow-2xl active:scale-95 flex items-center gap-3 ${image.imageUrl === activeThumbnailUrl ? 'bg-rose-600 text-white hover:bg-rose-500' : 'bg-white text-black hover:bg-primary hover:text-white'}`}
           >
             {image.imageUrl === activeThumbnailUrl ? <Icons.close size={14} /> : <Icons.edit size={14} />}
-            {image.imageUrl === activeThumbnailUrl ? 'Deselect Architecture' : 'Workbench'}
+            {image.imageUrl === activeThumbnailUrl ? 'Deselect Prompt' : 'Workbench'}
           </button>
         )}
         <div className="flex items-center gap-2 text-[9px] font-black text-white/50 uppercase tracking-[0.3em]">
@@ -468,7 +469,7 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
   const [error, setError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState(initialSearch);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid-4');
+  const { viewMode, setViewMode } = usePromptMaster();
   const [sortMode, setSortMode] = useState<SortMode>('newest');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -585,6 +586,8 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
     'grid-2': 'grid grid-cols-2 gap-6',
     'grid-3': 'grid grid-cols-2 md:grid-cols-3 gap-6',
     'grid-4': 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6',
+    'grid-5': 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6',
+    'grid-6': 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6',
     'list': 'flex flex-col gap-4',
   };
 
@@ -624,9 +627,8 @@ export default function PromptToolGallery({ onViewVariation, initialSearch = '',
           
           <div className="h-8 w-px bg-white/5 hidden md:block"></div>
 
-          {/* Density Selector Architecture */}
           <div className="flex p-1 bg-black/40 rounded-xl border border-white/5">
-            {(['grid-2', 'grid-3', 'grid-4'] as ViewMode[]).map(m => (
+            {(['grid-2', 'grid-3', 'grid-4', 'grid-5', 'grid-6'] as ViewMode[]).map(m => (
               <button
                 key={m}
                 onClick={() => setViewMode(m)}

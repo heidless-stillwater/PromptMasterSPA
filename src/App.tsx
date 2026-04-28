@@ -11,6 +11,7 @@ function App() {
   const { user, profile, loading, login, logout, masterData } = useAuth();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'blueprints' | 'exemplars' | 'gallery'>('blueprints');
+  const [tabVersion, setTabVersion] = useState(0);
   const location = useLocation();
   const navigate = useNavigate();
   const isAdminPath = location.pathname === '/admin';
@@ -19,6 +20,12 @@ function App() {
   const RESOURCES_URL = import.meta.env.VITE_PROMPTRESOURCES_URL || 'http://localhost:3002';
   const THIS_APP_URL = import.meta.env.VITE_APP_URL || 'http://localhost:5173';
 
+  const handleTabClick = (tab: 'blueprints' | 'exemplars' | 'gallery') => {
+    setActiveTab(tab);
+    setTabVersion(prev => prev + 1);
+    navigate('/');
+  };
+
   const [confirmModal, setConfirmModal] = useState<{ 
     isOpen: boolean; 
     title: string; 
@@ -26,6 +33,13 @@ function App() {
     onConfirm?: () => void; 
     isDanger?: boolean; 
     saving?: boolean;
+    costSummary?: {
+        engine: string;
+        quality: string;
+        cost: number;
+        balance: number;
+        remaining: number;
+    };
     preview?: {
         thumbnailUrl?: string;
         template?: string;
@@ -109,7 +123,7 @@ function App() {
                             Identity <br /><span className="text-primary/80">Verification</span>
                         </h2>
                         <p className="text-white/40 font-medium text-sm leading-relaxed max-w-sm mx-auto">
-                            Sign in to synchronise your Pro Suite entitlements and access the global blueprint registry.
+                            Sign in to synchronise your Pro Suite entitlements and access the global prompt registry.
                         </p>
                     </div>
 
@@ -147,7 +161,7 @@ function App() {
                             Registry <br /><span className="text-rose-400">Restricted</span>
                         </h2>
                         <p className="text-white/40 font-medium text-sm leading-relaxed max-w-sm mx-auto">
-                            The PromptMaster Registry is an advanced blueprint management system reserved for Pro Suite members.
+                            The PromptMaster Registry is an advanced prompt management system reserved for Pro Suite members.
                         </p>
                     </div>
 
@@ -191,7 +205,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-background text-white selection:bg-primary/30 font-inter">
-      <Header setActiveTab={setActiveTab} />
+      <Header setActiveTab={handleTabClick} />
       <EcosystemSwitcher />
 
       {/* ── CINEMATIC HERO COVER ── */}
@@ -209,39 +223,30 @@ function App() {
                   <div className="text-[11px] font-black text-primary uppercase tracking-[0.5em] mb-2">Stillwater Protocol / Registry</div>
                   <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none">
                       {isAdminPath ? 'Administration Cluster' : 
-                       activeTab === 'blueprints' ? 'Blueprint Registry' : 
+                       activeTab === 'blueprints' ? 'Prompt Registry' : 
                        activeTab === 'exemplars' ? 'Exemplars' : 
-                       'Personal Gallery'}
+                       'Asset Gallery'}
                   </h1>
               </div>
 
               {/* Global Tab Switcher */}
               <div className="flex gap-12 border-b border-white/5 pb-4">
                   <button 
-                      onClick={() => {
-                        setActiveTab('blueprints');
-                        navigate('/');
-                      }}
+                      onClick={() => handleTabClick('blueprints')}
                       className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'blueprints' ? 'text-primary border-primary' : 'text-white/20 border-transparent hover:text-white'}`}
                   >
                       <Icons.grid className="w-4 h-4" />
-                      Blueprint Registry
+                      Prompt Registry
                   </button>
                   <button 
-                      onClick={() => {
-                        setActiveTab('exemplars');
-                        navigate('/');
-                      }}
+                      onClick={() => handleTabClick('exemplars')}
                       className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'exemplars' ? 'text-primary border-primary' : 'text-white/20 border-transparent hover:text-white'}`}
                   >
                       <Icons.history className="w-4 h-4" />
-                      Historical Exemplars
+                      Exemplars
                   </button>
                   <button 
-                      onClick={() => {
-                        setActiveTab('gallery');
-                        navigate('/');
-                      }}
+                      onClick={() => handleTabClick('gallery')}
                       className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'gallery' ? 'text-primary border-primary' : 'text-white/20 border-transparent hover:text-white'}`}
                   >
                       <Icons.image className="w-4 h-4" />
@@ -254,8 +259,8 @@ function App() {
       <main className="w-full px-6 pb-20 relative z-30">
         <div className="max-w-7xl mx-auto animate-fade-in-up">
            <Routes>
-              <Route path="/" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} setConfirmModal={setConfirmModal} />} />
-              <Route path="/p/:promptId" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} setConfirmModal={setConfirmModal} />} />
+              <Route path="/" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} tabVersion={tabVersion} setConfirmModal={setConfirmModal} />} />
+              <Route path="/p/:promptId" element={<PromptMaster activeTab={activeTab} setActiveTab={setActiveTab} tabVersion={tabVersion} setConfirmModal={setConfirmModal} />} />
               <Route path="/admin" element={<AdminConsole />} />
            </Routes>
         </div>
@@ -335,47 +340,61 @@ function App() {
                 </div>
                 <div>
                    <h3 className="text-xl font-black text-white">{confirmModal.title}</h3>
-                   <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">Architecture Safety Guard</p>
+                   <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">Prompt Safety Guard</p>
                 </div>
              </div>
              <p className="text-sm text-gray-400 leading-relaxed mb-6">{confirmModal.message}</p>
 
-             {confirmModal.preview && (
-               <div className="mb-8 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                  <div className="flex gap-4 items-start pb-4 border-b border-white/5">
-                     {confirmModal.preview.thumbnailUrl && (
-                        <div className="w-24 h-24 rounded-2xl overflow-hidden border border-white/10 shrink-0 bg-black/40">
-                             <img src={confirmModal.preview.thumbnailUrl} className="w-full h-full object-contain" alt="Preview" />
+             {(confirmModal as any).costSummary && (
+                <div className="mb-8 p-6 bg-black/40 border border-white/5 rounded-3xl space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">Engine Cluster</p>
+                            <p className="text-xs font-bold text-primary uppercase">{(confirmModal as any).costSummary.engine}</p>
                         </div>
-                     )}
-                     <div className="flex-1 min-w-0">
-                        <p className="text-[9px] font-black text-indigo-400/40 uppercase tracking-[0.3em] mb-2">Neural Identity</p>
-                        <p className="text-[11px] font-bold text-white/90 truncate uppercase tracking-tighter">
-                            {confirmModal.title.replace('Clone ', '')}
-                        </p>
-                     </div>
-                  </div>
+                        <div className="space-y-1">
+                            <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">Quality Tier</p>
+                            <p className="text-xs font-bold text-emerald-400 uppercase">{(confirmModal as any).costSummary.quality}</p>
+                        </div>
+                    </div>
 
-                  <div className="space-y-3">
-                     {confirmModal.preview.template && (
-                        <div className="space-y-1.5">
-                           <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.3em]">Structural Template</p>
-                           <div className="p-3 bg-black/40 border border-white/5 rounded-xl font-mono text-[9px] text-indigo-300/80 leading-relaxed overflow-x-auto whitespace-pre-wrap break-words max-h-24 custom-scrollbar">
-                              {confirmModal.preview.template}
-                           </div>
+                    <div className="h-px bg-white/5" />
+
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                            <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Computational Cost</p>
+                            <div className="flex items-center gap-2">
+                                <span className="text-lg font-black text-white">{(confirmModal as any).costSummary.cost}</span>
+                                <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">Credits</span>
+                            </div>
                         </div>
-                     )}
-                     {confirmModal.preview.visionInstructions && (
-                        <div className="space-y-1.5">
-                           <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.3em]">Compiled Vision Instructions</p>
-                           <div className="p-3 bg-indigo-500/5 border border-indigo-500/10 rounded-xl font-mono text-[9px] text-white/60 leading-relaxed overflow-x-auto whitespace-pre-wrap break-words max-h-24 custom-scrollbar">
-                              {confirmModal.preview.visionInstructions}
-                           </div>
+                        <div className="flex justify-between items-center opacity-60">
+                            <p className="text-[10px] font-black text-white/40 uppercase tracking-widest">Current Balance</p>
+                            <p className="text-xs font-bold text-white">{(confirmModal as any).costSummary.balance} CR</p>
                         </div>
-                     )}
-                  </div>
-               </div>
+                        <div className="flex justify-between items-center pt-2 border-t border-white/5">
+                            <p className="text-[10px] font-black text-primary uppercase tracking-widest">Projected Tally</p>
+                            <p className="text-xs font-black text-primary">{(confirmModal as any).costSummary.remaining} CR</p>
+                        </div>
+                    </div>
+                </div>
              )}
+
+             {confirmModal.preview && (confirmModal.preview.template || confirmModal.preview.visionInstructions) && (
+                <div className="mb-8 space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <div className="space-y-1.5">
+                        <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.3em]">
+                            {confirmModal.preview.template ? 'Structural Template' : 'Compiled Vision Instructions'}
+                        </p>
+                        <div className="p-4 bg-indigo-500/5 border border-indigo-500/10 rounded-[1.5rem] font-mono text-[10px] text-white/60 leading-relaxed overflow-y-auto whitespace-pre-wrap break-words h-32 custom-scrollbar">
+                            {confirmModal.preview.template || confirmModal.preview.visionInstructions}
+                        </div>
+                        <p className="text-[8px] font-bold text-indigo-400/30 uppercase tracking-widest text-right mt-2">
+                            {confirmModal.preview.template ? 'Architectural Foundation' : 'Verified Architectural Output'}
+                        </p>
+                    </div>
+                </div>
+              )}
              <div className="grid grid-cols-2 gap-4">
                  {confirmModal.customButtons ? (
                      confirmModal.customButtons.map((btn: any, idx: number) => (

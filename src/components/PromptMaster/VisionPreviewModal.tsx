@@ -47,7 +47,8 @@ export const VisionPreviewModal: React.FC = () => {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex-1 relative flex items-center justify-center bg-black/60 overflow-hidden min-h-[40vh] md:min-h-0">
-          <div className="absolute -inset-20 bg-indigo-600 opacity-10 blur-[120px] animate-pulse pointer-events-none"></div>
+          <div className="absolute -inset-20 bg-indigo-600 opacity-10 blur-[120px] pointer-events-none"></div>
+
           <img
             src={previewImageUrl}
             className="relative w-full h-full object-contain z-10 p-4 md:p-12 transition-all duration-1000 group-hover/modal:scale-[1.01]"

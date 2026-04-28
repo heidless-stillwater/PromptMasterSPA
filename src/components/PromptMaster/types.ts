@@ -53,6 +53,7 @@ export interface CompletionSummary {
 export interface PromptMasterProps {
   activeTab: 'blueprints' | 'exemplars' | 'gallery';
   setActiveTab: (tab: 'blueprints' | 'exemplars' | 'gallery') => void;
+  tabVersion?: number;
   setConfirmModal: (modal: any) => void;
 }
 

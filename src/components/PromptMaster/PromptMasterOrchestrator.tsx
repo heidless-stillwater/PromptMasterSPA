@@ -35,14 +35,14 @@ const PromptMasterLayout: React.FC = () => {
             {!selectedPrompt ? (
                 <RegistryExplorer />
             ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start w-full max-w-full overflow-hidden">
                     {/* Main Workspace: Template, Variables, Variations */}
-                    <div className="lg:col-span-8 space-y-12">
+                    <div className="lg:col-span-8 space-y-12 min-w-0 w-full overflow-hidden">
                         <BlueprintEditor />
                     </div>
 
                     {/* Infrastructure Sidebar: Engine, Quality, Generation */}
-                    <div className="lg:col-span-4 sticky top-32">
+                    <div className="lg:col-span-4 sticky top-32 w-full">
                         <GenerationPanel />
                     </div>
                 </div>

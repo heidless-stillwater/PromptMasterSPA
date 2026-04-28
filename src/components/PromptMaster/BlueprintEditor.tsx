@@ -24,56 +24,76 @@ export const BlueprintEditor: React.FC = () => {
         referenceImages,
         uploadReferenceImage,
         addReferenceImage,
-        removeReferenceImage
+        removeReferenceImage,
+        selectedVariations,
+        toggleSelectVariation,
+        selectAllVariations,
+        handleDeleteSelectedVariations
     } = usePromptMaster();
 
     const [isGalleryModalOpen, setIsGalleryModalOpen] = React.useState(false);
     const fileInputRef = React.useRef<HTMLInputElement>(null);
 
-    if (!selectedPrompt) return null;
+    // Sync default tab based on asset type
+    React.useEffect(() => {
+        if (selectedPrompt?.isExemplar) {
+            setActiveDetailTab('media');
+        } else {
+            setActiveDetailTab('architect');
+        }
+    }, [selectedPrompt?.id, selectedPrompt?.isExemplar, setActiveDetailTab]);
+    const [isReferencesCollapsed, setIsReferencesCollapsed] = React.useState(referenceImages.length === 0);
 
-    // Local filter for selected variations if needed, but RegistryVariations handles its own internal state usually.
-    // However, PromptMaster provided handlers to it.
+    // Sync collapse state when a new blueprint is loaded or images are cleared
+    React.useEffect(() => {
+        if (referenceImages.length === 0) {
+            setIsReferencesCollapsed(true);
+        } else {
+            setIsReferencesCollapsed(false);
+        }
+    }, [referenceImages.length, selectedPrompt?.id]);
+
+    if (!selectedPrompt) return null;
 
     return (
         <div className="space-y-12 animate-fade-in-up">
-            <div className="flex flex-col md:flex-row items-start justify-between gap-12 border-b border-white/5 pb-12">
-                <div className="flex-1 w-full space-y-6">
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-12 border-b border-white/5 pb-12 items-start">
+                <div className="xl:col-span-8 space-y-6 min-w-0">
                     <button 
                         onClick={() => setSelectedPrompt(null)}
                         className="group flex items-center gap-3 text-[10px] font-black text-white/20 hover:text-indigo-400 uppercase tracking-[0.5em] transition-all"
                     >
                         <Icons.arrowLeft className="w-4 h-4 transition-transform group-hover:-translate-x-2" />
-                        De-select Architecture
+                        De-select Prompt
                     </button>
                     
                     <div className="flex flex-col gap-4">
-                        <div className="flex items-center gap-4">
-                            <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-white leading-none">
+                        <div className="flex flex-wrap items-center gap-4">
+                            <h2 className="text-4xl md:text-6xl font-black uppercase tracking-tighter text-white leading-[0.9] break-words">
                                 {selectedPrompt.title}
                             </h2>
                             {selectedPrompt.isExemplar && (
-                                <span className="px-4 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[9px] font-black uppercase tracking-widest rounded-full">
+                                <span className="px-4 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[9px] font-black uppercase tracking-widest rounded-full shrink-0">
                                     System Exemplar
                                 </span>
                             )}
                         </div>
-                        <p className="text-[11px] font-medium text-white/30 uppercase tracking-[0.3em] leading-relaxed max-w-2xl">
+                        <p className="text-[11px] font-medium text-white/30 uppercase tracking-[0.3em] leading-relaxed max-w-2xl break-words">
                             {selectedPrompt.description || 'No architectural documentation provided for this node.'}
                         </p>
                     </div>
 
-                    <div className="flex items-center gap-8 pt-4">
+                    <div className="flex items-center gap-8 pt-4 overflow-x-auto no-scrollbar">
                         <button 
                             onClick={() => setActiveDetailTab('architect')}
-                            className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeDetailTab === 'architect' ? 'text-indigo-400 border-indigo-500' : 'text-white/20 border-transparent hover:text-white'}`}
+                            className={`flex items-center gap-3 pb-4 -mb-[1px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 shrink-0 ${activeDetailTab === 'architect' ? 'text-indigo-400 border-indigo-500' : 'text-white/20 border-transparent hover:text-white'}`}
                         >
                             <Icons.edit className="w-4 h-4" />
-                            Blueprint Architect
+                            Prompt Blueprint
                         </button>
                         <button 
                             onClick={() => setActiveDetailTab('media')}
-                            className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeDetailTab === 'media' ? 'text-indigo-400 border-indigo-500' : 'text-white/20 border-transparent hover:text-white'}`}
+                            className={`flex items-center gap-3 pb-4 -mb-[1px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 shrink-0 ${activeDetailTab === 'media' ? 'text-indigo-400 border-indigo-500' : 'text-white/20 border-transparent hover:text-white'}`}
                         >
                             <Icons.image className="w-4 h-4" />
                             Media Vault
@@ -81,7 +101,7 @@ export const BlueprintEditor: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="w-full md:w-96 shrink-0">
+                <div className="xl:col-span-4 w-full max-w-md xl:max-w-none ml-auto">
                     <VisionPreview />
                 </div>
             </div>
@@ -148,10 +168,18 @@ export const BlueprintEditor: React.FC = () => {
                         {/* Reference Materials Matrix */}
                         <div className="space-y-6">
                             <div className="flex items-center justify-between">
-                                <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.5em] flex items-center gap-3">
-                                    <Icons.image className="w-5 h-5" />
-                                    Attached Reference Materials
-                                </h3>
+                                <button 
+                                    onClick={() => setIsReferencesCollapsed(!isReferencesCollapsed)}
+                                    className="flex items-center gap-4 group outline-none"
+                                >
+                                    <div className={`p-1.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 transition-all duration-500 group-hover:bg-indigo-500/20 ${isReferencesCollapsed ? '-rotate-90' : ''}`}>
+                                        <Icons.chevronDown size={14} />
+                                    </div>
+                                    <h3 className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.5em] flex items-center gap-3">
+                                        <Icons.image className="w-5 h-5" />
+                                        Attached Reference Materials
+                                    </h3>
+                                </button>
                                 <div className="flex gap-4">
                                     <input 
                                         type="file" 
@@ -180,31 +208,35 @@ export const BlueprintEditor: React.FC = () => {
                                 </div>
                             </div>
                             
-                            {referenceImages.length === 0 ? (
-                                <div className="p-10 border border-dashed border-white/5 rounded-[2.5rem] bg-white/[0.01] flex flex-col items-center justify-center gap-4 text-center group/empty">
-                                    <Icons.activity className="w-8 h-8 text-white/5 group/empty-hover:text-indigo-500/20 transition-colors" />
-                                    <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.3em]">No reference foundations anchored to this blueprint</p>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
-                                    {referenceImages.map((ref, idx) => (
-                                        <div key={idx} className="relative group/ref rounded-2xl overflow-hidden aspect-square border border-white/10 bg-black shadow-xl">
-                                            <img src={ref.url} className="w-full h-full object-cover opacity-60 group-hover/ref:opacity-100 transition-all duration-500 group-hover/ref:scale-110" alt={ref.title} />
-                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover/ref:opacity-100 transition-opacity" />
-                                            
-                                            <button 
-                                                onClick={() => removeReferenceImage(ref.url)}
-                                                className="absolute top-2 right-2 p-2 bg-rose-600 text-white rounded-lg opacity-0 group-hover/ref:opacity-100 transition-all hover:bg-rose-500 shadow-xl"
-                                            >
-                                                <Icons.close className="w-3 h-3" />
-                                            </button>
-                                            
-                                            <div className="absolute bottom-3 left-3 right-3 pointer-events-none opacity-0 group-hover/ref:opacity-100 transition-opacity">
-                                                <p className="text-[8px] font-black text-white uppercase truncate tracking-widest">{ref.title || 'Untitled Reference'}</p>
-                                                <p className="text-[7px] font-black text-indigo-400 uppercase tracking-widest">{ref.source} source</p>
-                                            </div>
+                            {!isReferencesCollapsed && (
+                                <div className="animate-fade-in-up">
+                                    {referenceImages.length === 0 ? (
+                                        <div className="p-10 border border-dashed border-white/5 rounded-[2.5rem] bg-white/[0.01] flex flex-col items-center justify-center gap-4 text-center group/empty">
+                                            <Icons.activity className="w-8 h-8 text-white/5 group/empty-hover:text-indigo-500/20 transition-colors" />
+                                            <p className="text-[9px] font-black text-white/10 uppercase tracking-[0.3em]">No reference foundations anchored to this blueprint</p>
                                         </div>
-                                    ))}
+                                    ) : (
+                                        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                                            {referenceImages.map((ref, idx) => (
+                                                <div key={idx} className="relative group/ref rounded-2xl overflow-hidden aspect-square border border-white/10 bg-black shadow-xl">
+                                                    <img src={ref.url} className="w-full h-full object-cover opacity-60 group-hover/ref:opacity-100 transition-all duration-500 group-hover/ref:scale-110" alt={ref.title} />
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover/ref:opacity-100 transition-opacity" />
+                                                    
+                                                    <button 
+                                                        onClick={() => removeReferenceImage(ref.url)}
+                                                        className="absolute top-2 right-2 p-2 bg-rose-600 text-white rounded-lg opacity-0 group-hover/ref:opacity-100 transition-all hover:bg-rose-500 shadow-xl"
+                                                    >
+                                                        <Icons.close className="w-3 h-3" />
+                                                    </button>
+                                                    
+                                                    <div className="absolute bottom-3 left-3 right-3 pointer-events-none opacity-0 group-hover/ref:opacity-100 transition-opacity">
+                                                        <p className="text-[8px] font-black text-white uppercase truncate tracking-widest">{ref.title || 'Untitled Reference'}</p>
+                                                        <p className="text-[7px] font-black text-indigo-400 uppercase tracking-widest">{ref.source} source</p>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -243,22 +275,22 @@ export const BlueprintEditor: React.FC = () => {
                         <RegistryVariations 
                             generatedImages={generatedImages}
                             isVariationsCollapsed={false}
-                            selectedVariations={new Set()} // Placeholder for now or connect to context
+                            selectedVariations={selectedVariations} 
                             variationsViewMode={variationsViewMode}
                             originalSnapshot={originalSnapshot}
                             selectedPrompt={selectedPrompt}
                             profile={profile}
                             user={user}
                             setIsVariationsCollapsed={() => {}}
-                            handleDeleteSelectedVariations={() => {}}
-                            selectAllVariations={() => {}}
+                            handleDeleteSelectedVariations={handleDeleteSelectedVariations}
+                            selectAllVariations={selectAllVariations}
                             setVariationsViewMode={setVariationsViewMode}
                             handleAssetSelection={handleAssetSelection}
                             setPreviewImageUrl={setPreviewImageUrl}
                             setPreviewTitle={setPreviewTitle}
                             setPreviewPrompt={setPreviewPrompt}
                             handleClone={handleClone}
-                            toggleSelectVariation={() => {}}
+                            toggleSelectVariation={toggleSelectVariation}
                             onViewInGallery={handleViewInGallery}
                         />
                     </div>
@@ -268,22 +300,22 @@ export const BlueprintEditor: React.FC = () => {
                     <RegistryVariations 
                         generatedImages={generatedImages}
                         isVariationsCollapsed={false}
-                        selectedVariations={new Set()}
+                        selectedVariations={selectedVariations}
                         variationsViewMode={variationsViewMode}
                         originalSnapshot={originalSnapshot}
                         selectedPrompt={selectedPrompt}
                         profile={profile}
                         user={user}
                         setIsVariationsCollapsed={() => {}}
-                        handleDeleteSelectedVariations={() => {}}
-                        selectAllVariations={() => {}}
+                        handleDeleteSelectedVariations={handleDeleteSelectedVariations}
+                        selectAllVariations={selectAllVariations}
                         setVariationsViewMode={setVariationsViewMode}
                         handleAssetSelection={handleAssetSelection}
                         setPreviewImageUrl={setPreviewImageUrl}
                         setPreviewTitle={setPreviewTitle}
                         setPreviewPrompt={setPreviewPrompt}
                         handleClone={handleClone}
-                        toggleSelectVariation={() => {}}
+                        toggleSelectVariation={toggleSelectVariation}
                         onViewInGallery={handleViewInGallery}
                     />
                 </div>
