@@ -222,7 +222,7 @@ function App() {
               <div className="flex flex-col gap-2 animate-fade-in">
                   <div className="text-[11px] font-black text-primary uppercase tracking-[0.5em] mb-2">Stillwater Protocol / Registry</div>
                   <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none">
-                      {isAdminPath ? 'Administration Cluster' : 
+                      {isAdminPath ? 'Admin Settings' : 
                        activeTab === 'blueprints' ? 'Prompt Registry' : 
                        activeTab === 'exemplars' ? 'Exemplars' : 
                        'Asset Gallery'}

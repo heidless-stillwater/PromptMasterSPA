@@ -154,7 +154,7 @@ const Header: React.FC<HeaderProps> = ({ setActiveTab }) => {
                       </div>
 
                       <div className="py-6 space-y-2">
-                          <button onClick={() => window.open(`${RESOURCES_URL}/dashboard/settings`, '_blank')} className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/5 rounded-xl transition-all">
+                          <button onClick={() => { navigate('/admin'); setShowMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white hover:bg-white/5 rounded-xl transition-all">
                               <Icons.settings size={14} /> Account Settings
                           </button>
                           <button onClick={() => window.open(`${RESOURCES_URL}/resources`, '_blank')} className="w-full flex items-center gap-3 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-primary/80 hover:text-primary hover:bg-primary/5 rounded-xl transition-all">
