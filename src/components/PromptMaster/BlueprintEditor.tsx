@@ -74,7 +74,7 @@ export const BlueprintEditor: React.FC = () => {
                             </h2>
                             {selectedPrompt.isExemplar && (
                                 <span className="px-4 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[9px] font-black uppercase tracking-widest rounded-full shrink-0">
-                                    System Exemplar
+                                    Registry Template
                                 </span>
                             )}
                         </div>

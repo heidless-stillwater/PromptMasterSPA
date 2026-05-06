@@ -41,7 +41,7 @@ export const RegistryExplorer: React.FC = () => {
                         <Icons.search className={`absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 transition-colors ${searchQuery ? 'text-primary' : 'text-white/20'}`} />
                         <input 
                             type="text" 
-                            placeholder={`Search ${activeTab === 'blueprints' ? 'prompts' : 'exemplars'}...`}
+                            placeholder={`Search ${activeTab === 'blueprints' ? 'blueprints' : 'registry'}...`}
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             className="w-full h-11 pl-12 pr-10 bg-black/40 border border-white/5 rounded-2xl text-sm text-white outline-none focus:border-primary/50 transition-all font-medium placeholder:text-white/30"

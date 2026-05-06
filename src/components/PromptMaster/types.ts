@@ -20,6 +20,7 @@ export interface Prompt {
   updatedAt?: number;
   promptSetID?: string | null;
   authorName?: string;
+  uid?: string;
   referenceImages?: ReferenceImage[];
 }
 

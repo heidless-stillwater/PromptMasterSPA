@@ -1,12 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
-import { collection, getDocs, addDoc, serverTimestamp, doc, setDoc, query, where, deleteDoc, limit } from 'firebase/firestore';
+import { collection, getDocs, addDoc, serverTimestamp, doc, getDoc, setDoc, query, where, deleteDoc, limit } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { toolDb, registryDb, storage } from '../../lib/firebase';
+import { db, toolDb, registryDb, storage } from '../../lib/firebase';
 import { triggerGeneration, type GenerationProgress } from '../../lib/services/prompt-tool';
 import { useAuth } from '../../contexts/AuthContext';
 import { useParams } from 'react-router-dom';
-import type { 
-  Prompt, Variation, StatusStep, CompletionSummary, PromptMasterProps, ReferenceImage 
+import type {
+  Prompt, Variation, StatusStep, CompletionSummary, PromptMasterProps, ReferenceImage
 } from './types';
 import {
   INITIAL_STEPS, FALLBACK_PROMPTS, parseDate
@@ -161,7 +161,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
   const [variables, setVariables] = useState<Record<string, { value: string; default: string }>>({});
   const [resultantPrompt, setResultantPrompt] = useState('');
   const [isEditingBlueprint, setIsEditingBlueprint] = useState(false);
-  const [activeDetailTab, setActiveDetailTab] = useState<'architect' | 'media'>( 'architect');
+  const [activeDetailTab, setActiveDetailTab] = useState<'architect' | 'media'>('architect');
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const [notification, setNotification] = useState<{ id: string; title: string } | null>(null);
   const [isNewImageSet, setIsNewImageSet] = useState(false);
@@ -186,6 +186,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const prevTabRef = useRef(activeTab);
+  const suppressSelectionResetRef = useRef(false); // set true before programmatic tab nav
   useEffect(() => {
     if (prevTabRef.current !== activeTab) {
       if (prevTabRef.current === 'gallery') {
@@ -199,53 +200,66 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
 
   const fetchPrompts = useCallback(async () => {
     setLoadingLibrary(true);
+
+    // ── Personal Prompts (independent — failure must not block exemplars) ──
     try {
       let personal: Prompt[] = [];
       if (user) {
-        // Now fetching from the SHARED ecosystem registry (prompttool-db-0)
-        const personalSnap = await getDocs(collection(registryDb, 'blueprints'));
-        personal = personalSnap.docs
-          .filter(d => d.data().uid === user.uid)
-          .map(d => {
-            const data = d.data();
-            return {
-              id: d.id,
-              ...data,
-              isPersonal: true,
-              authorName: data.authorName || user.displayName || 'Architect',
-              createdAt: parseDate(data.createdAt),
-              updatedAt: parseDate(data.updatedAt || data.createdAt),
-            } as Prompt;
-          });
+        try {
+          const personalSnap = await getDocs(collection(db, 'blueprints'));
+          personal = personalSnap.docs
+            .filter(d => !user || d.data().uid === user.uid)
+            .map(d => {
+              const data = d.data();
+              return {
+                id: d.id,
+                ...data,
+                isPersonal: true,
+                authorName: data.authorName || user.displayName || 'Architect',
+                createdAt: parseDate(data.createdAt),
+                updatedAt: parseDate(data.updatedAt || data.createdAt),
+              } as Prompt;
+            });
+        } catch {
+          // blueprints collection unavailable — use fallback, don't block exemplars
+        }
       }
       setPrompts(personal.length > 0 ? personal : FALLBACK_PROMPTS);
-
-      try {
-        // Exemplars (leagueEntries) also reside in the SHARED registry
-        const toolSnap = await getDocs(collection(registryDb, 'leagueEntries'));
-        const toolRes = toolSnap.docs.map(d => {
-          const data = d.data();
-          const legacyTitle = data.prompt?.slice(0, 50).trim() + (data.prompt?.length > 50 ? '...' : '');
-          return {
-            id: d.id,
-            title: data.title || legacyTitle || 'Untitled Exemplar',
-            template: data.prompt,
-            prompts: [data.prompt],
-            thumbnailUrl: data.imageUrl,
-            description: data.description || '',
-            authorName: data.authorName || 'Ecosystem Architect',
-            isExemplar: true,
-            promptSetID: data.promptSetID || data.entryId || d.id,
-            createdAt: parseDate(data.createdAt || data.timestamp),
-            updatedAt: parseDate(data.updatedAt || data.createdAt || data.timestamp),
-          } as Prompt;
-        });
-        setExemplars(toolRes);
-      } catch {
-        setExemplars([]);
-      }
     } catch {
       setPrompts(FALLBACK_PROMPTS);
+    }
+
+    // ── Exemplars: Shared Registry (Templates from PromptTool) ─────────
+    try {
+      // Reverting to fetch from 'blueprints' as requested to restore original behavior
+      const toolSnap = await getDocs(collection(registryDb, 'blueprints'));
+      console.log('[PromptMaster] Shared Registry fetched:', toolSnap.size);
+      
+      const toolRes = toolSnap.docs
+        .map(d => {
+          const data = d.data();
+          const prompt = (data.prompts && data.prompts[0]) || data.template || '';
+          
+          return {
+            id: d.id,
+            title: data.title || 'Untitled Template',
+            template: prompt,
+            prompts: [prompt],
+            thumbnailUrl: data.thumbnailUrl || data.imageUrl || '',
+            description: data.description || '',
+            authorName: data.authorName || 'Ecosystem Architect',
+            uid: data.uid || '',
+            isExemplar: true,
+            promptSetID: data.promptSetID || d.id,
+            createdAt: parseDate(data.createdAt),
+            updatedAt: parseDate(data.updatedAt || data.createdAt),
+          } as Prompt;
+        });
+
+      setExemplars(toolRes);
+    } catch (err) {
+      console.error('[PromptMaster] Shared Registry fetch failed:', err);
+      setExemplars([]);
     } finally {
       setLoadingLibrary(false);
     }
@@ -285,12 +299,12 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
 
   useEffect(() => {
     if (!selectedPrompt) return;
-    
+
     // Neural Compilation: Real-time Vision Instructions
     const refCount = referenceImages.length;
-    const refIndicator = refCount > 0 
-        ? `\n\n[REFERENCE MATERIALS ATTACHED: ${referenceImages.map(r => r.title || 'Untitled').join(', ')}]`
-        : `\n\n[NO REFERENCE MATERIALS ATTACHED]`;
+    const refIndicator = refCount > 0
+      ? `\n\n[REFERENCE MATERIALS ATTACHED: ${referenceImages.map(r => r.title || 'Untitled').join(', ')}]`
+      : `\n\n[NO REFERENCE MATERIALS ATTACHED]`;
 
     let result = rawTemplate || '';
     Object.entries(variables).forEach(([key, data]) => {
@@ -299,7 +313,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       const wrapped = isActuallyDefault ? `__DEF__${displayValue}__DEF__` : `__VAL__${displayValue}__VAL__`;
       result = result.replace(new RegExp(`{{${key}(?::.*?)?}}`, 'g'), wrapped);
     });
-    
+
     setResultantPrompt(result + refIndicator);
   }, [variables, selectedPrompt, rawTemplate, referenceImages]);
 
@@ -329,7 +343,11 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
 
   useEffect(() => {
     // Clear selection on tab change OR click version increment
-    setSelectedPrompt(null);
+    // — but NOT when navigating programmatically from gallery to a blueprint (suppressSelectionResetRef)
+    if (!suppressSelectionResetRef.current) {
+      setSelectedPrompt(null);
+    }
+    suppressSelectionResetRef.current = false;
     if (activeTab === 'gallery') {
       setGallerySearchQuery('');
     }
@@ -360,33 +378,33 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     if (urlsToDelete.length === 0) return;
 
     setConfirmModal({
-        isOpen: true,
-        title: 'Purge Matrix Nodes',
-        message: `This will permanently decommission ${urlsToDelete.length} variations from the ecosystem registry. Neural lineage will be severed. Proceed?`,
-        isDanger: true,
-        onConfirm: async () => {
-            setConfirmModal(null);
-            setSaving(true);
-            try {
-                for (const url of urlsToDelete) {
-                    const img = generatedImages.find(i => i.url === url);
-                    if (img && img.id) {
-                        await deleteDoc(doc(registryDb, 'users', user.uid, 'images', img.id));
-                    }
-                }
-                setGeneratedImages(prev => prev.filter(img => !urlsToDelete.includes(img.url)));
-                setSelectedVariations(prev => {
-                    const next = new Set(prev);
-                    urlsToDelete.forEach(u => next.delete(u));
-                    return next;
-                });
-                setNotification({ id: crypto.randomUUID(), title: `${urlsToDelete.length} variations purged.` });
-            } catch (err: any) {
-                setError(err.message);
-            } finally {
-                setSaving(false);
+      isOpen: true,
+      title: 'Purge Matrix Nodes',
+      message: `This will permanently decommission ${urlsToDelete.length} variations from the ecosystem registry. Neural lineage will be severed. Proceed?`,
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmModal(null);
+        setSaving(true);
+        try {
+          for (const url of urlsToDelete) {
+            const img = generatedImages.find(i => i.url === url);
+            if (img && img.id) {
+              await deleteDoc(doc(registryDb, 'users', user.uid, 'images', img.id));
             }
+          }
+          setGeneratedImages(prev => prev.filter(img => !urlsToDelete.includes(img.url)));
+          setSelectedVariations(prev => {
+            const next = new Set(prev);
+            urlsToDelete.forEach(u => next.delete(u));
+            return next;
+          });
+          setNotification({ id: crypto.randomUUID(), title: `${urlsToDelete.length} variations purged.` });
+        } catch (err: any) {
+          setError(err.message);
+        } finally {
+          setSaving(false);
         }
+      }
     });
   }, [user, selectedVariations, generatedImages, setConfirmModal]);
 
@@ -401,7 +419,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       try {
         const lineageID = currentPrompt.promptSetID || currentPrompt.id;
         const q = query(
-          collection(registryDb, 'images'), 
+          collection(registryDb, 'images'),
           where('promptSetID', '==', lineageID),
           limit(1)
         );
@@ -410,10 +428,10 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
           const varData = snap.docs[0].data();
           const recoveredUrl = varData.imageUrl || varData.url;
           if (recoveredUrl) {
-              currentPrompt.thumbnailUrl = recoveredUrl;
-              console.log(`[Sovereign Registry] Successfully anchored thumbnail: ${recoveredUrl}`);
-              // Update master list to avoid secondary lookups
-              setExemplars(prev => prev.map(p => p.id === currentPrompt.id ? { ...p, thumbnailUrl: recoveredUrl } : p));
+            currentPrompt.thumbnailUrl = recoveredUrl;
+            console.log(`[Sovereign Registry] Successfully anchored thumbnail: ${recoveredUrl}`);
+            // Update master list to avoid secondary lookups
+            setExemplars(prev => prev.map(p => p.id === currentPrompt.id ? { ...p, thumbnailUrl: recoveredUrl } : p));
           }
         }
       } catch (err) {
@@ -518,7 +536,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     setActiveDetailTab('architect');
   }, [selectedPrompt, extractVariables]);
 
-   const handleAssetSelection = useCallback((url: string | null, title: string | undefined, newPrompt: string | undefined, vars?: Record<string, { value: string; default: string }>) => {
+  const handleAssetSelection = useCallback((url: string | null, title: string | undefined, newPrompt: string | undefined, vars?: Record<string, { value: string; default: string }>) => {
     if (!newPrompt) {
       setPreviewImageUrl(url);
       setPreviewTitle(title || '<no title>');
@@ -532,7 +550,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       const originalTitle = originalSnapshot?.title || selectedPrompt?.title;
       const originalPrompt = originalSnapshot?.template || selectedPrompt?.template || selectedPrompt?.prompts?.[0] || '';
       const originalVars = originalSnapshot?.variables || {};
-      
+
       commitSelection(originalUrl, originalTitle, originalPrompt, originalVars);
       return;
     }
@@ -546,7 +564,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
         title: 'Unsaved Prompt Changes',
         message: 'Your current prompt overrides have not been registered to the ecosystem. Resolving conflict...',
         isDanger: true,
-        onConfirm: () => {},
+        onConfirm: () => { },
         customButtons: [
           {
             label: 'Sync & Load',
@@ -633,7 +651,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       };
 
       if (isActuallyNew) {
-        const docRef = await addDoc(collection(registryDb, 'blueprints'), {
+        const docRef = await addDoc(collection(db, 'blueprints'), {
           ...blueprintData,
           createdAt: serverTimestamp(),
         });
@@ -646,7 +664,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
         });
         setLastCommittedPrompt(updatedRawTemplate);
       } else if (selectedPrompt?.isPersonal) {
-        await setDoc(doc(registryDb, 'blueprints', selectedPrompt.id), blueprintData, { merge: true });
+        await setDoc(doc(db, 'blueprints', selectedPrompt.id), blueprintData, { merge: true });
         setSelectedPrompt(prev => prev ? { ...prev, ...blueprintData, updatedAt: Date.now() } : null);
         setLastCommittedPrompt(updatedRawTemplate);
       }
@@ -724,7 +742,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
             setSaving(true);
             try {
               if (isPersonal) {
-                await deleteDoc(doc(registryDb, 'blueprints', promptToDelete.id));
+                await deleteDoc(doc(db, 'blueprints', promptToDelete.id));
                 try {
                   const imagesRef = collection(toolDb, 'users', user.uid, 'images');
                   const qById = query(imagesRef, where('promptSetID', '==', promptToDelete.id));
@@ -810,8 +828,8 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      
-      const docRef = await addDoc(collection(registryDb, 'blueprints'), blueprintData);
+
+      const docRef = await addDoc(collection(db, 'blueprints'), blueprintData);
 
       // Seed Genesis Node in user's generation ledger
       await addDoc(collection(toolDb, 'users', user.uid, 'images'), {
@@ -824,12 +842,13 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
         createdAt: serverTimestamp(),
         title: `${baseTitle} (Genesis)`,
       });
-      
+
       setNotification({ id: docRef.id, title: `Successfully registered clone: ${baseTitle}` });
       setTimeout(() => setNotification(null), 4000);
 
-      // Pivot to Prompt Registry tab to ensure context stability
+      // Pivot to Personal Blueprints tab and refresh library
       setActiveTab('blueprints');
+      await fetchPrompts();
 
       handleSelect({
         id: docRef.id,
@@ -845,9 +864,9 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       setSaving(false);
     }
   }, [user, prompts, handleSelect, setConfirmModal, setNotification]);
-  
+
   // ── Reference Material Handlers ──────────────────────────────────
-  
+
   const uploadReferenceImage = useCallback(async (file: File) => {
     if (!user) return;
     setSaving(true);
@@ -856,13 +875,13 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       const storageRef = ref(storage, `users/${user.uid}/references/${guid}`);
       const snapshot = await uploadBytes(storageRef, file);
       const url = await getDownloadURL(snapshot.ref);
-      
+
       const newRef: ReferenceImage = {
         url,
         title: file.name,
         source: 'upload'
       };
-      
+
       setReferenceImages(prev => [...prev, newRef]);
       setNotification({ id: guid, title: `Successfully anchored reference: ${file.name}` });
       setTimeout(() => setNotification(null), 4000);
@@ -900,7 +919,7 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
       setGenerating(true);
       setStatus(INITIAL_STEPS);
       const idToken = await user.getIdToken();
-      
+
       await triggerGeneration(
         finalPrompt,
         user.uid,
@@ -965,13 +984,13 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
 
   const handleSubmit = useCallback(async () => {
     if (!user || !resultantPrompt) return;
-    
+
     // Neural Compilation: Append reference material indicator
     const refCount = referenceImages.length;
-    const refIndicator = refCount > 0 
-        ? `\n\n[REFERENCE MATERIALS ATTACHED: ${referenceImages.map(r => r.title || 'Untitled').join(', ')}]`
-        : `\n\n[NO REFERENCE MATERIALS ATTACHED]`;
-    
+    const refIndicator = refCount > 0
+      ? `\n\n[REFERENCE MATERIALS ATTACHED: ${referenceImages.map(r => r.title || 'Untitled').join(', ')}]`
+      : `\n\n[NO REFERENCE MATERIALS ATTACHED]`;
+
     const bakedTemplate = getCleanPrompt();
     setRawTemplate(bakedTemplate);
     if (selectedPrompt && !selectedPrompt.isExemplar) {
@@ -990,15 +1009,15 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     // Sanitize variables for Firestore compatibility (no dots in keys)
     const sanitizedVariables: Record<string, { value: string, default: string }> = {};
     Object.entries(variables).forEach(([key, val]) => {
-        const safeKey = key.replace(/\./g, '_');
-        sanitizedVariables[safeKey] = val;
+      const safeKey = key.replace(/\./g, '_');
+      sanitizedVariables[safeKey] = val;
     });
 
     const generationVariables = { ...sanitizedVariables };
     const refPayload = referenceImages.map(img => ({
-        data: img.url,
-        mimeType: 'image/png',
-        title: img.title
+      data: img.url,
+      mimeType: 'image/png',
+      title: img.title
     }));
 
     // --- High-Fidelity Confirmation Protocol ---
@@ -1009,35 +1028,35 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
     const remaining = balance - totalCost;
 
     setConfirmModal({
-        isOpen: true,
-        title: 'Neural Generation Request',
-        message: `Authorize the ecosystem to trigger a new neural variation for "${selectedPrompt?.title || 'New Architecture'}". This will deploy the specified engine cluster and quality tier.`,
-        costSummary: {
-            engine: engine.split('-')[0],
-            quality,
-            cost: totalCost,
-            balance,
-            remaining
+      isOpen: true,
+      title: 'Neural Generation Request',
+      message: `Authorize the ecosystem to trigger a new neural variation for "${selectedPrompt?.title || 'New Architecture'}". This will deploy the specified engine cluster and quality tier.`,
+      costSummary: {
+        engine: engine.split('-')[0],
+        quality,
+        cost: totalCost,
+        balance,
+        remaining
+      },
+      preview: {
+        thumbnailUrl: selectedPrompt?.thumbnailUrl || (referenceImages.length > 0 ? referenceImages[0].url : undefined),
+        visionInstructions: resultantPrompt
+      },
+      customButtons: [
+        {
+          label: 'Authorize & Generate',
+          onClick: () => {
+            setConfirmModal(null);
+            executeGeneration(finalPrompt, activePromptSetID, generationVariables, refPayload);
+          },
+          className: "col-span-1 py-3 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all shadow-lg bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20",
         },
-        preview: {
-            thumbnailUrl: selectedPrompt?.thumbnailUrl || (referenceImages.length > 0 ? referenceImages[0].url : undefined),
-            visionInstructions: resultantPrompt
-        },
-        customButtons: [
-            {
-                label: 'Authorize & Generate',
-                onClick: () => {
-                    setConfirmModal(null);
-                    executeGeneration(finalPrompt, activePromptSetID, generationVariables, refPayload);
-                },
-                className: "col-span-1 py-3 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest text-white transition-all shadow-lg bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20",
-            },
-            {
-                label: 'Abort Session',
-                onClick: () => setConfirmModal(null),
-                className: "col-span-1 py-3 px-6 rounded-xl border border-white/5 text-[10px] font-black uppercase tracking-widest text-white/10 hover:text-white/40 hover:bg-white/5 transition-all",
-            }
-        ]
+        {
+          label: 'Abort Session',
+          onClick: () => setConfirmModal(null),
+          className: "col-span-1 py-3 px-6 rounded-xl border border-white/5 text-[10px] font-black uppercase tracking-widest text-white/10 hover:text-white/40 hover:bg-white/5 transition-all",
+        }
+      ]
     });
   }, [user, resultantPrompt, selectedPrompt, variables, quality, engine, isNewImageSet, getCleanPrompt, doSave, setConfirmModal, executeGeneration, profile, referenceImages]);
 
@@ -1074,17 +1093,84 @@ export const PromptMasterProvider: React.FC<PromptMasterProps & { children: Reac
   const handleViewVariation = useCallback(async (image: any) => {
     const psid = image.promptSetID;
     if (!psid) { setError("This variation is not linked to a blueprint lineage."); return; }
+
+    // 1. Check in-memory arrays first (fastest path)
     let p = prompts.find(x => x.promptSetID === psid || x.id === psid);
     let tab: 'blueprints' | 'exemplars' = 'blueprints';
     if (!p) {
       p = exemplars.find(x => x.promptSetID === psid || x.id === psid);
       tab = 'exemplars';
     }
+
+    // 2. Fall back: fetch directly from Firestore registry (handles PromptTool-generated images)
+    if (!p) {
+      try {
+        // Try user's personal prompts collection first
+        if (user) {
+          // Check user's generation ledger for the prompt link
+          const personalDoc = await getDoc(doc(toolDb, 'users', user.uid, 'images', psid));
+          if (personalDoc.exists()) {
+            const data = personalDoc.data();
+            p = { id: personalDoc.id, title: data.title || 'Blueprint', template: data.prompt || data.template || image.prompt, prompts: [data.prompt || data.template || image.prompt], thumbnailUrl: data.imageUrl || image.imageUrl, isPersonal: true, promptSetID: psid } as Prompt;
+            tab = 'blueprints';
+          }
+          
+          // Check isolated PromptMaster registry (clones)
+          if (!p) {
+            const blueprintDoc = await getDoc(doc(db, 'blueprints', psid));
+            if (blueprintDoc.exists()) {
+              const data = blueprintDoc.data();
+              p = { id: blueprintDoc.id, ...data, isPersonal: true, promptSetID: psid } as Prompt;
+              tab = 'blueprints';
+            }
+          }
+        }
+        // Try shared leagueEntries registry
+        if (!p) {
+          const registryDoc = await getDoc(doc(registryDb, 'leagueEntries', psid));
+          if (registryDoc.exists()) {
+            const data = registryDoc.data();
+            const prompt = data.prompt || data.template || image.prompt || '';
+            p = { id: registryDoc.id, title: data.title || prompt.slice(0, 50) || 'Community Blueprint', template: prompt, prompts: [prompt], thumbnailUrl: data.imageUrl || image.imageUrl, isExemplar: true, promptSetID: psid } as Prompt;
+            tab = 'exemplars';
+          }
+        }
+        // Try promptSetID as a direct prompt doc under toolDb
+        if (!p) {
+          const toolDoc = await getDoc(doc(toolDb, 'blueprints', psid));
+          if (toolDoc.exists()) {
+            const data = toolDoc.data();
+            const prompt = data.prompt || data.template || image.prompt || '';
+            p = { id: toolDoc.id, title: data.title || prompt.slice(0, 50) || 'Blueprint', template: prompt, prompts: [prompt], thumbnailUrl: data.imageUrl || image.imageUrl, promptSetID: psid } as Prompt;
+            tab = 'blueprints';
+          }
+        }
+      } catch (fetchErr) {
+        console.warn('[handleViewVariation] Registry fetch failed:', fetchErr);
+      }
+    }
+
+    // 3. Last resort: construct a temporary blueprint from the image's own prompt text
+    if (!p && image.prompt) {
+      const prompt = image.prompt;
+      p = {
+        id: `temp-${psid}`,
+        title: image.title || prompt.slice(0, 50) || 'Recovered Blueprint',
+        template: prompt,
+        prompts: [prompt],
+        thumbnailUrl: image.imageUrl,
+        promptSetID: psid,
+      } as Prompt;
+      tab = 'blueprints';
+    }
+
     if (!p) { setError("Associated blueprint node not found in the registry."); return; }
+    // Suppress the tab-change selection reset so BlueprintEditor opens immediately
+    suppressSelectionResetRef.current = true;
     setActiveTab(tab);
     await handleSelect(p);
     handleAssetSelection(image.imageUrl, image.title, image.prompt);
-  }, [prompts, exemplars, setActiveTab, handleSelect, handleAssetSelection]);
+  }, [user, prompts, exemplars, setActiveTab, handleSelect, handleAssetSelection]);
 
   const handleViewInGallery = useCallback((image: any) => {
     if (image?.promptSetID) {

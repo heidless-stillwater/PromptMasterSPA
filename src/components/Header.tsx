@@ -41,7 +41,7 @@ const Header: React.FC<HeaderProps> = ({ setActiveTab }) => {
               </div>
             </div>
             <div className="flex flex-col">
-              <h1 className="text-lg font-black tracking-tighter text-white group-hover:text-primary transition-colors uppercase leading-none">Prompt Master</h1>
+              <h1 className="text-lg font-black tracking-tighter text-white group-hover:text-primary transition-colors uppercase leading-none">PromptMaster <span className="text-primary/60 text-[10px] ml-1">v1.0</span></h1>
               <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.2em] mt-1.5 leading-none">Registry Intelligence</p>
             </div>
           </div>

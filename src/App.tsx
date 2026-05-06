@@ -223,8 +223,8 @@ function App() {
                   <div className="text-[11px] font-black text-primary uppercase tracking-[0.5em] mb-2">Stillwater Protocol / Registry</div>
                   <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white leading-none">
                       {isAdminPath ? 'Admin Settings' : 
-                       activeTab === 'blueprints' ? 'Prompt Registry' : 
-                       activeTab === 'exemplars' ? 'Exemplars' : 
+                       activeTab === 'blueprints' ? 'Personal Blueprints' : 
+                       activeTab === 'exemplars' ? 'Prompt Registry' : 
                        'Asset Gallery'}
                   </h1>
               </div>
@@ -236,14 +236,14 @@ function App() {
                       className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'blueprints' ? 'text-primary border-primary' : 'text-white/20 border-transparent hover:text-white'}`}
                   >
                       <Icons.grid className="w-4 h-4" />
-                      Prompt Registry
+                      Personal Blueprints
                   </button>
                   <button 
                       onClick={() => handleTabClick('exemplars')}
                       className={`flex items-center gap-3 pb-4 -mb-[17px] text-[11px] font-black uppercase tracking-[0.4em] transition-all border-b-2 ${activeTab === 'exemplars' ? 'text-primary border-primary' : 'text-white/20 border-transparent hover:text-white'}`}
                   >
-                      <Icons.history className="w-4 h-4" />
-                      Exemplars
+                      <Icons.exemplar className="w-4 h-4" />
+                      Prompt Registry
                   </button>
                   <button 
                       onClick={() => handleTabClick('gallery')}
@@ -275,7 +275,7 @@ function App() {
                       </div>
                       <div className="flex flex-col">
                           <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Stillwater Studio</span>
-                          <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest leading-none">AG-Protocol v1.2</span>
+                          <span className="text-[9px] font-bold text-white/20 uppercase tracking-widest leading-none">PromptMaster v1.0</span>
                       </div>
                   </div>
                   <p className="text-[10px] font-medium text-white/20 max-w-xs leading-relaxed uppercase tracking-wider">
